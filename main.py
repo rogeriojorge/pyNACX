@@ -192,18 +192,93 @@
 # jax_torsion = jax.vmap(lambda p: torsion(rc, zs, p))(phi).transpose()
 # new_time5 = time();print('  Calculating torsion took {} seconds'.format(time() - new_time4))
 
+##############
+#### PLOTTING DIFFERENCES
+##############
+
+# stel_tangent_cylindrical = stel.tangent_cylindrical.transpose()
+# stel_normal_cylindrical = stel.normal_cylindrical.transpose()
+# stel_binormal_cylindrical = stel.binormal_cylindrical.transpose()
+# stel_curvature = stel.curvature
+# stel_torsion = stel.torsion
+# stel_G0 = stel.G0
+# stel_axis_length = stel.axis_length
+
+
+
+
+# fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+# for i in range(3):
+#     axes[0, 0].plot(stel_tangent_cylindrical[i], '--', label='Stel Tangent Component {}'.format(i+1))
+#     axes[0, 0].plot(jax_tangent_cylindrical[i], '.', label='JAX Tangent Component {}'.format(i+1))
+#     axes[0, 0].legend()
+#     axes[0, 0].set_ylabel('Components of the Tangent Vector')
+# for i in range(3):
+#     axes[1, 0].plot(stel_normal_cylindrical[i], '--', label='Stel Normal Component {}'.format(i+1))
+#     axes[1, 0].plot(jax_normal_cylindrical[i], '.', label='JAX Normal Component {}'.format(i+1))
+#     axes[1, 0].legend()
+#     axes[1, 0].set_ylabel('Components of the Normal Vector')
+# for i in range(3):
+#     axes[0, 1].plot(stel_binormal_cylindrical[i], '--', label='Stel Binormal Component {}'.format(i+1))
+#     axes[0, 1].plot(jax_binormal_cylindrical[i], '.', label='JAX Binormal Component {}'.format(i+1))
+#     axes[0, 1].legend()
+#     axes[0, 1].set_ylabel('Components of the Binormal Vector')
+# axes[1, 1].plot(stel_curvature, '--', label='Stel Curvature')
+# axes[1, 1].plot(jax_curvature, '.', label='JAX Curvature')
+# axes[1, 1].legend()
+# axes[1, 1].plot(stel_torsion, '--', label='Stel Torsion')
+# axes[1, 1].plot(jax_torsion, '.', label='JAX Torsion')
+# axes[1, 1].legend()
+# axes[1, 1].set_ylabel('Curvature, Torsion')
+# plt.show()
+
+
+
 import jax
 import jax.numpy as jnp
 from qsc import Qsc
 from time import time
 import matplotlib.pyplot as plt
+import numpy.testing as npt
 
-nphi = 31
+nphi = 51
 nfp = 2
 rc = jnp.array([1, 0.1])
 zs = jnp.array([0, 0.1])
+helicity = 0
+sG = 1
+spsi = 1
+I2 = 0
+B0 = 1
 phi = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
+d_phi = phi[1] - phi[0]
+
+start_time=time()
 stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi)
+print('Calculating pyQSC values took {} seconds'.format(time() - start_time))
+
+def sigma_equation_residual(curvature, torsion, sigma, etabar, d_d_varphi, iota, G0, B0):
+    etaOcurv2 = etabar**2 / curvature**2
+    eq = np.matmul(d_d_varphi, sigma) + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
+       - 2 * etaOcurv2 * (-spsi * torsion + I2 / B0) * G0 / B0
+    return eq
+
+def sigma_equation_jacobian(sigma, sigma0, iota, d_d_varphi, etabar, curvature):
+    etaOcurv2 = etabar**2 / curvature**2
+    jac = np.copy(d_d_varphi)
+    for j in range(nphi):
+        jac[j, j] += (iota + helicity * nfp) * 2 * sigma[j]
+    jac[:, 0] = etaOcurv2**2 + 1 + sigma * sigma
+    return jac
+
+def solve_sigma_equation(self):
+    x0 = np.full(nphi, sigma0)
+    x0[0] = 0
+    soln = scipy.optimize.root(sigma_equation_residual, x0, jac=sigma_equation_jacobian, method='lm')
+    iota = soln.x[0]
+    sigma = np.copy(soln.x)
+    sigma[0] = sigma0
+    return iota, sigma
 
 def compute_frenet_frames_and_curvature_torsion(eR, eZ, phi_vals):
     def pos_vector_component(phi_val):
@@ -240,53 +315,36 @@ def compute_frenet_frames_and_curvature_torsion(eR, eZ, phi_vals):
     curvature = jnp.linalg.norm(d_tangent_d_l, axis=1, keepdims=True)
     normal = d_tangent_d_l / curvature
     binormal = jnp.cross(tangent, normal)
-
-    torsion_numerator = ( d_r_d_phi[:,0] * (d2_r_d_phi2[:,1] * d3_r_d_phi3[:,2] - d2_r_d_phi2[:,2] * d3_r_d_phi3[:,1]) \
-                        + d_r_d_phi[:,1] * (d2_r_d_phi2[:,2] * d3_r_d_phi3[:,0] - d2_r_d_phi2[:,0] * d3_r_d_phi3[:,2]) 
-                        + d_r_d_phi[:,2] * (d2_r_d_phi2[:,0] * d3_r_d_phi3[:,1] - d2_r_d_phi2[:,1] * d3_r_d_phi3[:,0]))
-
-    torsion_denominator = (d_r_d_phi[:,1] * d2_r_d_phi2[:,2] - d_r_d_phi[:,2] * d2_r_d_phi2[:,1]) ** 2 \
-                        + (d_r_d_phi[:,2] * d2_r_d_phi2[:,0] - d_r_d_phi[:,0] * d2_r_d_phi2[:,2]) ** 2 \
-                        + (d_r_d_phi[:,0] * d2_r_d_phi2[:,1] - d_r_d_phi[:,1] * d2_r_d_phi2[:,0]) ** 2
-
+    torsion_numerator = jnp.sum(d_r_d_phi * jnp.cross(d2_r_d_phi2, d3_r_d_phi3), axis=1)
+    torsion_denominator = jnp.linalg.norm(jnp.cross(d_r_d_phi, d2_r_d_phi2), axis=1)**2
     torsion = torsion_numerator / torsion_denominator
 
-    return tangent.transpose(), normal.transpose(), binormal.transpose(), curvature, torsion
+    B0_over_abs_G0 = nphi / jnp.sum(d_l_d_phi)
+    G0 = sG * B0 / B0_over_abs_G0
+    axis_length = 2 * jnp.pi / B0_over_abs_G0
+    varphi = jnp.concatenate([jnp.zeros(1), jnp.cumsum(d_l_d_phi[:-1, 0] + d_l_d_phi[1:, 0])]) * (0.5 * d_phi * 2 * jnp.pi / axis_length)
 
-start = time()
-jax_tangent_cartesian, jax_normal_cartesian, jax_binormal_cartesian, jax_curvature, jax_torsion = compute_frenet_frames_and_curvature_torsion(rc, zs, phi)
-intermediate_time = time();print('Calculating JAX values took {} seconds'.format(time() - start))
+    y_phi = solve_ode(lambda x: jnp.interp(x, phi_vals, curvature[:,0]), 
+                      lambda x: jnp.interp(x, phi_vals, torsion), 
+                      phi_vals, 
+                      jnp.array([0.0]))
 
-stel_tangent_cylindrical = stel.tangent_cylindrical.transpose()
-stel_normal_cylindrical = stel.normal_cylindrical.transpose()
-stel_binormal_cylindrical = stel.binormal_cylindrical.transpose()
-print('Calculating pyQSC values took {} seconds'.format(time() - intermediate_time))
+    return tangent.transpose(), normal.transpose(), binormal.transpose(), curvature[:,0], torsion, G0, axis_length, varphi
 
+start_time = time()
+jax_tangent_cartesian, jax_normal_cartesian, jax_binormal_cartesian, jax_curvature, jax_torsion, jax_G0, jax_axis_length, jax_varphi = compute_frenet_frames_and_curvature_torsion(rc, zs, phi)
+intermediate_time = time();print('Calculating JAX values took {} seconds'.format(time() - start_time))
+
+## Test that the JAX values are the same as the pyQSC values
+tolerance = 1e-6
 jax_tangent_cylindrical = jnp.array([jax_tangent_cartesian[0] * jnp.cos(phi) + jax_tangent_cartesian[1] * jnp.sin(phi), - jax_tangent_cartesian[0] * jnp.sin(phi) + jax_tangent_cartesian[1] * jnp.cos(phi), jax_tangent_cartesian[2]])
 jax_normal_cylindrical = jnp.array( [jax_normal_cartesian[0]  * jnp.cos(phi) + jax_normal_cartesian[1]  * jnp.sin(phi), - jax_normal_cartesian[0]  * jnp.sin(phi) + jax_normal_cartesian[1]  * jnp.cos(phi), jax_normal_cartesian[2]])
 jax_binormal_cylindrical = jnp.array([jax_binormal_cartesian[0] * jnp.cos(phi) + jax_binormal_cartesian[1] * jnp.sin(phi), - jax_binormal_cartesian[0] * jnp.sin(phi) + jax_binormal_cartesian[1] * jnp.cos(phi), jax_binormal_cartesian[2]])
-
-fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-for i in range(3):
-    axes[0, 0].plot(stel_tangent_cylindrical[i], '--', label='Stel Tangent Component {}'.format(i+1))
-    axes[0, 0].plot(jax_tangent_cylindrical[i], '.', label='JAX Tangent Component {}'.format(i+1))
-    axes[0, 0].legend()
-    axes[0, 0].set_ylabel('Components of the Tangent Vector')
-for i in range(3):
-    axes[1, 0].plot(stel_normal_cylindrical[i], '--', label='Stel Normal Component {}'.format(i+1))
-    axes[1, 0].plot(jax_normal_cylindrical[i], '.', label='JAX Normal Component {}'.format(i+1))
-    axes[1, 0].legend()
-    axes[1, 0].set_ylabel('Components of the Normal Vector')
-for i in range(3):
-    axes[0, 1].plot(stel_binormal_cylindrical[i], '--', label='Stel Binormal Component {}'.format(i+1))
-    axes[0, 1].plot(jax_binormal_cylindrical[i], '.', label='JAX Binormal Component {}'.format(i+1))
-    axes[0, 1].legend()
-    axes[0, 1].set_ylabel('Components of the Binormal Vector')
-axes[1, 1].plot(stel.curvature, '--', label='Stel Curvature')
-axes[1, 1].plot(jax_curvature, '.', label='JAX Curvature')
-axes[1, 1].legend()
-axes[1, 1].plot(stel.torsion, '--', label='Stel Torsion')
-axes[1, 1].plot(jax_torsion, '.', label='JAX Torsion')
-axes[1, 1].legend()
-axes[1, 1].set_ylabel('Curvature, Torsion')
-plt.show()
+npt.assert_allclose(jax_tangent_cylindrical, stel.tangent_cylindrical.transpose(), atol=tolerance, rtol=0)
+npt.assert_allclose(jax_normal_cylindrical, stel.normal_cylindrical.transpose(), atol=tolerance, rtol=0)
+npt.assert_allclose(jax_binormal_cylindrical, stel.binormal_cylindrical.transpose(), atol=tolerance, rtol=0)
+npt.assert_allclose(jax_curvature, stel.curvature, atol=tolerance, rtol=0)
+npt.assert_allclose(jax_torsion, stel.torsion, atol=tolerance, rtol=0)
+npt.assert_allclose(jax_G0, stel.G0, atol=tolerance, rtol=0)
+npt.assert_allclose(jax_axis_length, stel.axis_length, atol=tolerance, rtol=0)
+npt.assert_allclose(jax_varphi, stel.varphi, atol=tolerance, rtol=0)
