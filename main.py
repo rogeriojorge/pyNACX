@@ -84,21 +84,26 @@
 
 import jax
 import jax.numpy as jnp
+from qsc import Qsc
+from matplotlib import pyplot as plt
 
-nphi = 21
+nphi = 41
 nfp = 2
 rc = jnp.array([1, 0.1])
 zs = jnp.array([0, 0.1])
 phi = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
+stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi)
 
 def pos_vector_component(eR, eZ, component_index, phi_val):
-    R = jnp.sum(eR * jnp.cos(jnp.arange(len(eR)) * phi_val * nfp))
-    Z = jnp.sum(eZ * jnp.cos(jnp.arange(len(eZ)) * phi_val * nfp))
+    phi_val_expanded = phi_val if phi_val.ndim == 0 else phi_val[:, None]
+    R = jnp.sum(eR * jnp.cos(jnp.arange(len(eR)) * phi_val_expanded * nfp), axis=-1)
+    Z = jnp.sum(eZ * jnp.sin(jnp.arange(len(eZ)) * phi_val_expanded * nfp), axis=-1)
+
     if component_index == 0:
-        return R * jnp.cos(phi_val)
+        return R
     elif component_index == 1:
-        return R * jnp.sin(phi_val)
-    else:
+        return phi_val
+    elif component_index == 2:
         return Z
 
 def frenet_frame(eR, eZ):
@@ -107,14 +112,13 @@ def frenet_frame(eR, eZ):
         component_fn = lambda phi_val: pos_vector_component(eR, eZ, i, phi_val)
         d_component_d_phi = jax.vmap(jax.grad(component_fn))(phi)
         tangent.append(d_component_d_phi)
-    
-    return jnp.array(tangent)
+    tangent = jnp.array(tangent)
+    norm_tangent = jnp.linalg.norm(tangent, axis=0)
+    return jnp.array(tangent/norm_tangent)
 
-from qsc import Qsc
-from matplotlib import pyplot as plt
-stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi)
 stel_tangent = stel.tangent_cylindrical.transpose()
 jax_tangent = frenet_frame(rc, zs)
+
 fig, axes = plt.subplots(3, 1, figsize=(10, 8))
 for i in range(3):
     axes[i].plot(stel_tangent[i], label='Stel Tangent Component {}'.format(i+1))
