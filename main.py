@@ -213,29 +213,43 @@ def compute_frenet_frames_and_curvature_torsion(eR, eZ, phi_vals):
         Z = jnp.sum(eZ * zs_sines)
         return jnp.array([R * jnp.cos(phi_val), R * jnp.sin(phi_val), Z])
 
-    def derivative_component(phi_val):
+    def d_r_d_phi_func(phi_val):
         return jax.jacfwd(pos_vector_component)(phi_val)
 
-    def second_derivative_component(phi_val):
-        return jax.jacfwd(derivative_component)(phi_val)
+    def d2_r_d_phi2_func(phi_val):
+        return jax.jacfwd(d_r_d_phi_func)(phi_val)
 
-    d_r_d_phi = jax.vmap(derivative_component)(phi_vals)
-    d2_r_d_phi2 = jax.vmap(second_derivative_component)(phi_vals)
+    def d3_r_d_phi3_func(phi_val):
+        return jax.jacfwd(d2_r_d_phi2_func)(phi_val)
+    
+    def d_l_d_phi_func(phi_val):
+        d_r_d_phi = d_r_d_phi_func(phi_val)
+        return jnp.linalg.norm(d_r_d_phi, axis=0, keepdims=True)
+    
+    def d2_l_d_phi2_func(phi_val):
+        return jax.jacfwd(d_l_d_phi_func)(phi_val)
 
-    tangent = d_r_d_phi / jnp.linalg.norm(d_r_d_phi, axis=1, keepdims=True)
-    curvature = jnp.linalg.norm(d2_r_d_phi2, axis=1) / jnp.linalg.norm(d_r_d_phi, axis=1)**3
+    d_r_d_phi = jax.vmap(d_r_d_phi_func)(phi_vals)
+    d2_r_d_phi2 = jax.vmap(d2_r_d_phi2_func)(phi_vals)
+    d_l_d_phi = jax.vmap(d_l_d_phi_func)(phi_vals)
+    d2_l_d_phi2 = jax.vmap(d2_l_d_phi2_func)(phi_vals)
+    d3_r_d_phi3 = jax.vmap(d3_r_d_phi3_func)(phi_vals)
 
-    normal = d2_r_d_phi2 / jnp.linalg.norm(d2_r_d_phi2, axis=1, keepdims=True)
+    tangent = d_r_d_phi / d_l_d_phi
+    d_tangent_d_l = (-d_r_d_phi * d2_l_d_phi2 / d_l_d_phi + d2_r_d_phi2) / (d_l_d_phi * d_l_d_phi)
+    curvature = jnp.linalg.norm(d_tangent_d_l, axis=1, keepdims=True)
+    normal = d_tangent_d_l / curvature
     binormal = jnp.cross(tangent, normal)
 
-    def third_derivative_component(phi_val):
-        return jax.jacfwd(lambda p: jnp.cross(derivative_component(p), normal_vector(p)))(phi_val)
+    torsion_numerator = ( d_r_d_phi[:,0] * (d2_r_d_phi2[:,1] * d3_r_d_phi3[:,2] - d2_r_d_phi2[:,2] * d3_r_d_phi3[:,1]) \
+                        + d_r_d_phi[:,1] * (d2_r_d_phi2[:,2] * d3_r_d_phi3[:,0] - d2_r_d_phi2[:,0] * d3_r_d_phi3[:,2]) 
+                        + d_r_d_phi[:,2] * (d2_r_d_phi2[:,0] * d3_r_d_phi3[:,1] - d2_r_d_phi2[:,1] * d3_r_d_phi3[:,0]))
 
-    def normal_vector(phi_val):
-        return second_derivative_component(phi_val) / jnp.linalg.norm(second_derivative_component(phi_val), axis=0)
+    torsion_denominator = (d_r_d_phi[:,1] * d2_r_d_phi2[:,2] - d_r_d_phi[:,2] * d2_r_d_phi2[:,1]) ** 2 \
+                        + (d_r_d_phi[:,2] * d2_r_d_phi2[:,0] - d_r_d_phi[:,0] * d2_r_d_phi2[:,2]) ** 2 \
+                        + (d_r_d_phi[:,0] * d2_r_d_phi2[:,1] - d_r_d_phi[:,1] * d2_r_d_phi2[:,0]) ** 2
 
-    torsion = jax.vmap(third_derivative_component)(phi_vals)
-    torsion = jnp.sum(torsion * binormal, axis=1)
+    torsion = torsion_numerator / torsion_denominator
 
     return tangent.transpose(), normal.transpose(), binormal.transpose(), curvature, torsion
 
