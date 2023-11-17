@@ -1,289 +1,31 @@
-## Solve near-axis equations using JAX
-
-# from scipy.optimize import root
-# import matplotlib.pyplot as plt
-
-# def newton(f, x_0, tol=1e-5):
-#     f_prime = jax.grad(f)
-#     def q(x):
-#         return x - f(x) / f_prime(x)
-
-#     error = tol + 1
-#     x = x_0
-#     while error > tol:
-#         y = q(x)
-#         error = abs(x - y)
-#         x = y
-        
-#     return x
-
-# f = lambda x: jnp.sin(4 * (x - 1/4)) + x + x**20 - 1
-# x = jnp.linspace(0, 1, 100)
-
-# fig, ax = plt.subplots()
-# ax.plot(x, f(x), label='$f(x)$')
-# ax.axhline(ls='--', c='k')
-# ax.set_xlabel('$x$', fontsize=12)
-# ax.set_ylabel('$f(x)$', fontsize=12)
-# ax.legend(fontsize=12)
-# plt.show()
-
-# import jax
-# import jax.numpy as jnp
-# nphi = 21
-# nfp = 2
-# rc = jnp.array([1, 0.1])
-# zs = jnp.array([0, 0.1])
-# phi = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
-# def pos_vector(eR, eZ):
-#     R = jnp.sum(eR[:, None] * jnp.cos(jnp.arange(len(eR))[:, None] * phi * nfp), axis=0)
-#     Z = jnp.sum(eZ[:, None] * jnp.cos(jnp.arange(len(eZ))[:, None] * phi * nfp), axis=0)
-#     return jnp.array([R*jnp.cos(phi), R*jnp.sin(phi), Z])
-# def frenet_frame(eR, eZ):
-#     pos = pos_vector(eR, eZ)
-#     jacobian_pos = jax.jacfwd(pos_vector)(eR, eZ)
-#     tangent = jacobian_pos[0]
-#     tangent /= jnp.linalg.norm(tangent, axis=0)
-#     d_tangent_d_l = jax.jacfwd(jax.jacfwd(pos_vector))(eR, eZ)
-#     normal = d_tangent_d_l[0, 0] / jnp.linalg.norm(d_tangent_d_l[0, 0], axis=0)
-#     tangent = tangent[:, :normal.shape[1]]
-#     binormal = jnp.cross(tangent, normal)
-#     return tangent, normal, binormal
-
-# def curvature(eR, eZ):
-#     _, _, binormal = frenet_frame(eR, eZ)
-#     d_tangent_d_l = jax.jacfwd(jax.jacfwd(pos_vector))(eR, eZ)
-#     d_tangent_d_l /= jnp.linalg.norm(d_tangent_d_l, axis=0)
-#     return jnp.linalg.norm(d_tangent_d_l, axis=0), binormal
-
-# def torsion(eR, eZ):
-#     tangent, _, binormal = frenet_frame(eR, eZ)
-#     d_tangent_d_l = jax.jacfwd(jax.jacfwd(pos_vector))(eR, eZ)
-#     d_tangent_d_l /= jnp.linalg.norm(d_tangent_d_l, axis=0)
-#     d_binormal_d_l = jax.jacfwd(jax.jacfwd(jnp.cross))(tangent, binormal)
-#     return jnp.sum(d_binormal_d_l * binormal, axis=0)
-
-# def axis_length(eR, eZ):
-#     tangent, _, _ = frenet_frame(eR, eZ)
-#     d_l_d_phi = jnp.linalg.norm(tangent, axis=0)
-#     return jnp.sum(d_l_d_phi) * (2 * jnp.pi / nfp) / nphi
-
-# def axis_helicity(eR, eZ):
-#     tangent, _, _ = frenet_frame(eR, eZ)
-#     d_l_d_phi = jnp.linalg.norm(tangent, axis=0)
-#     d_phi = 2 * jnp.pi / nphi
-#     d2_l_d_phi2 = (d_l_d_phi[2:] - d_l_d_phi[:-2]) / (2 * d_phi)
-#     return jnp.sum(d2_l_d_phi2) * d_phi * nfp
-
-# from qsc import Qsc
-# from matplotlib import pyplot as plt
-# stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi)
-# plt.plot(curvature(rc,zs))
-# plt.plot(stel.curvature)
-# plt.show()
-
-# import jax
-# import jax.numpy as jnp
-# from qsc import Qsc
-# from matplotlib import pyplot as plt
-# from time import time
-
-# nphi = 101
-# nfp = 2
-# rc = jnp.array([1, 0.1])
-# zs = jnp.array([0, 0.1])
-# phi = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
-# stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi)
-
-# print('Defining Functions')
-# start = time()
-
-# def pos_vector_component(eR, eZ, phi_val):
-#     phi_val_expanded = jnp.atleast_1d(phi_val)
-#     rc_harmonics = jnp.arange(rc.size)
-#     zs_harmonics = jnp.arange(zs.size)
-#     rc_cosines = jnp.cos(rc_harmonics * phi_val_expanded * nfp)
-#     zs_sines   = jnp.sin(zs_harmonics * phi_val_expanded * nfp)
-#     R = jnp.sum(rc * rc_cosines, axis=0)
-#     Z = jnp.sum(zs * zs_sines, axis=0)
-#     return jnp.array([R * jnp.cos(phi_val), R * jnp.sin(phi_val), Z])
-
-# def d_r_d_phi(eR, eZ, phi_val):
-#     result = []
-#     for i in range(3):
-#         component_fn = lambda p, i=i: pos_vector_component(eR, eZ, p)[i]
-#         d_component_d_phi = jax.grad(component_fn)(phi_val)
-#         result.append(d_component_d_phi)
-#     return jnp.array(result)
-
-# def d2_r_d_phi2(eR, eZ, phi_val):
-#     result = []
-#     for i in range(3):
-#         d_r_d_phi_fn = lambda p, i=i: d_r_d_phi(eR, eZ, p)[i]
-#         d2_component_d_phi2 = jax.grad(d_r_d_phi_fn)(phi_val)
-#         result.append(d2_component_d_phi2)
-#     return jnp.array(result)
-
-# def d3_r_d_phi3(eR, eZ, phi_val):
-#     result = []
-#     for i in range(3):
-#         d2_r_d_phi2_fn = lambda p, i=i: d2_r_d_phi2(eR, eZ, p)[i]
-#         d3_component_d_phi3 = jax.grad(d2_r_d_phi2_fn)(phi_val)
-#         result.append(d3_component_d_phi3)
-#     return jnp.array(result)
-
-# def tangent_vector(eR, eZ, phi_val):
-#     d_r_d_phi_array = d_r_d_phi(eR, eZ, phi_val)
-#     result = jnp.array(d_r_d_phi_array) / jnp.linalg.norm(jnp.array(d_r_d_phi_array), axis=0)
-#     return result.transpose()
-
-# def d_tangent_d_phi(eR, eZ, phi_val):
-#     result = []
-#     for i in range(3):
-#         tangent_fn = lambda p, i=i: tangent_vector(eR, eZ, p)[i]
-#         d_component_d_phi = jax.grad(tangent_fn)(phi_val)
-#         result.append(d_component_d_phi)
-#     return jnp.array(result)
-
-# def d_l_d_phi(eR, eZ, phi_val):
-#     d_r_d_phi_array = d_r_d_phi(eR, eZ, phi_val)
-#     return jnp.linalg.norm(jnp.array(d_r_d_phi_array), axis=0)
-
-# def curvature(eR, eZ, phi_val):
-#     d_tangent_d_phi_array = d_tangent_d_phi(eR, eZ, phi_val)
-#     d_l_d_phi_array = d_l_d_phi(eR, eZ, phi_val)
-#     return jnp.linalg.norm(d_tangent_d_phi_array / d_l_d_phi_array, axis=0)
-
-# def normal_vector(eR, eZ, phi_val):
-#     d_tangent_d_phi_array = d_tangent_d_phi(eR, eZ, phi_val)
-#     d_l_d_phi_array = d_l_d_phi(eR, eZ, phi_val)
-#     curvature_array = curvature(eR, eZ, phi_val)
-#     return d_tangent_d_phi_array / d_l_d_phi_array / curvature_array
-
-# def binormal_vector(eR, eZ, phi_val):
-#     tangent_array = tangent_vector(eR, eZ, phi_val)
-#     normal_array = normal_vector(eR, eZ, phi_val)
-#     return jnp.cross(tangent_array, normal_array)
-
-# def d_normal_d_phi(eR, eZ, phi_val):
-#     result = []
-#     for i in range(3):
-#         normal_fn = lambda p, i=i: normal_vector(eR, eZ, p)[i]
-#         d_component_d_phi = jax.grad(normal_fn)(phi_val)
-#         result.append(d_component_d_phi)
-#     return jnp.array(result)
-
-# def torsion(eR, eZ, phi_val):
-#     d_l_d_phi_array = d_l_d_phi(eR, eZ, phi_val)
-#     d_normal_d_phi_array = d_normal_d_phi(eR, eZ, phi_val)
-#     binormal_array = binormal_vector(eR, eZ, phi_val)
-#     return jnp.dot(d_normal_d_phi_array, binormal_array)/d_l_d_phi_array
-
-# intermediate_time = time();print('  Defining Functions took {} seconds'.format(intermediate_time - start))
-# print('Calculating tangent')
-# jax_tangent_cartesian = jax.vmap(lambda p: tangent_vector(rc, zs, p))(phi).transpose()
-# new_time = time();print('  Calculating tangent took {} seconds'.format(time() - intermediate_time))
-# jax_normal_cartesian = jax.vmap(lambda p: normal_vector(rc, zs, p))(phi).transpose()
-# new_time2 = time();print('  Calculating normal took {} seconds'.format(time() - new_time))
-# jax_binormal_cartesian = jax.vmap(lambda p: binormal_vector(rc, zs, p))(phi).transpose()
-# new_time3 = time();print('  Calculating binormal took {} seconds'.format(time() - new_time2))
-# jax_curvature = jax.vmap(lambda p: curvature(rc, zs, p))(phi).transpose()
-# new_time4 = time();print('  Calculating curvature took {} seconds'.format(time() - new_time3))
-# jax_torsion = jax.vmap(lambda p: torsion(rc, zs, p))(phi).transpose()
-# new_time5 = time();print('  Calculating torsion took {} seconds'.format(time() - new_time4))
-
-##############
-#### PLOTTING DIFFERENCES
-##############
-
-# stel_tangent_cylindrical = stel.tangent_cylindrical.transpose()
-# stel_normal_cylindrical = stel.normal_cylindrical.transpose()
-# stel_binormal_cylindrical = stel.binormal_cylindrical.transpose()
-# stel_curvature = stel.curvature
-# stel_torsion = stel.torsion
-# stel_G0 = stel.G0
-# stel_axis_length = stel.axis_length
-
-
-
-
-# fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-# for i in range(3):
-#     axes[0, 0].plot(stel_tangent_cylindrical[i], '--', label='Stel Tangent Component {}'.format(i+1))
-#     axes[0, 0].plot(jax_tangent_cylindrical[i], '.', label='JAX Tangent Component {}'.format(i+1))
-#     axes[0, 0].legend()
-#     axes[0, 0].set_ylabel('Components of the Tangent Vector')
-# for i in range(3):
-#     axes[1, 0].plot(stel_normal_cylindrical[i], '--', label='Stel Normal Component {}'.format(i+1))
-#     axes[1, 0].plot(jax_normal_cylindrical[i], '.', label='JAX Normal Component {}'.format(i+1))
-#     axes[1, 0].legend()
-#     axes[1, 0].set_ylabel('Components of the Normal Vector')
-# for i in range(3):
-#     axes[0, 1].plot(stel_binormal_cylindrical[i], '--', label='Stel Binormal Component {}'.format(i+1))
-#     axes[0, 1].plot(jax_binormal_cylindrical[i], '.', label='JAX Binormal Component {}'.format(i+1))
-#     axes[0, 1].legend()
-#     axes[0, 1].set_ylabel('Components of the Binormal Vector')
-# axes[1, 1].plot(stel_curvature, '--', label='Stel Curvature')
-# axes[1, 1].plot(jax_curvature, '.', label='JAX Curvature')
-# axes[1, 1].legend()
-# axes[1, 1].plot(stel_torsion, '--', label='Stel Torsion')
-# axes[1, 1].plot(jax_torsion, '.', label='JAX Torsion')
-# axes[1, 1].legend()
-# axes[1, 1].set_ylabel('Curvature, Torsion')
-# plt.show()
-
-
-
 import jax
 import jax.numpy as jnp
 from qsc import Qsc
 from time import time
 import matplotlib.pyplot as plt
-import numpy.testing as npt
 
-nphi = 51
 nfp = 2
-rc = jnp.array([1, 0.1])
-zs = jnp.array([0, 0.1])
-helicity = 0
+rc = jnp.array([1, -0.1, 0.01, 0.001])
+zs = jnp.array([0, 0.1, 0.01, 0.001])
 sG = 1
 spsi = 1
 I2 = 0
 B0 = 1
-phi = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
-d_phi = phi[1] - phi[0]
+etabar = 0.9
+sigma0=0
+iota_desired = 0.4
+nphi = 31
 
-start_time=time()
-stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi)
-print('Calculating pyQSC values took {} seconds'.format(time() - start_time))
+def nacx_residual(eR, eZ, etabar=1.0, nphi=nphi, sigma=jnp.zeros(nphi)+0.01, iota=iota_desired, sigma0=sigma0, debug=False):
+    assert nphi % 2 == 1, 'nphi must be odd'
+    phi_vals = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
+    d_phi = phi_vals[1] - phi_vals[0]
+    sigma = sigma.at[0].set(sigma0)
+    sigma = sigma.at[nphi-1].set(sigma0)
 
-def sigma_equation_residual(curvature, torsion, sigma, etabar, d_d_varphi, iota, G0, B0):
-    etaOcurv2 = etabar**2 / curvature**2
-    eq = np.matmul(d_d_varphi, sigma) + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
-       - 2 * etaOcurv2 * (-spsi * torsion + I2 / B0) * G0 / B0
-    return eq
-
-def sigma_equation_jacobian(sigma, sigma0, iota, d_d_varphi, etabar, curvature):
-    etaOcurv2 = etabar**2 / curvature**2
-    jac = np.copy(d_d_varphi)
-    for j in range(nphi):
-        jac[j, j] += (iota + helicity * nfp) * 2 * sigma[j]
-    jac[:, 0] = etaOcurv2**2 + 1 + sigma * sigma
-    return jac
-
-def solve_sigma_equation(self):
-    x0 = np.full(nphi, sigma0)
-    x0[0] = 0
-    soln = scipy.optimize.root(sigma_equation_residual, x0, jac=sigma_equation_jacobian, method='lm')
-    iota = soln.x[0]
-    sigma = np.copy(soln.x)
-    sigma[0] = sigma0
-    return iota, sigma
-
-def compute_frenet_frames_and_curvature_torsion(eR, eZ, phi_vals):
     def pos_vector_component(phi_val):
         rc_cosines = jnp.cos(jnp.arange(eR.size) * phi_val * nfp)
-        zs_sines = jnp.sin(jnp.arange(eZ.size) * phi_val * nfp)
+        zs_sines   = jnp.sin(jnp.arange(eZ.size) * phi_val * nfp)
         R = jnp.sum(eR * rc_cosines)
         Z = jnp.sum(eZ * zs_sines)
         return jnp.array([R * jnp.cos(phi_val), R * jnp.sin(phi_val), Z])
@@ -324,27 +66,131 @@ def compute_frenet_frames_and_curvature_torsion(eR, eZ, phi_vals):
     axis_length = 2 * jnp.pi / B0_over_abs_G0
     varphi = jnp.concatenate([jnp.zeros(1), jnp.cumsum(d_l_d_phi[:-1, 0] + d_l_d_phi[1:, 0])]) * (0.5 * d_phi * 2 * jnp.pi / axis_length)
 
-    y_phi = solve_ode(lambda x: jnp.interp(x, phi_vals, curvature[:,0]), 
-                      lambda x: jnp.interp(x, phi_vals, torsion), 
-                      phi_vals, 
-                      jnp.array([0.0]))
+    def spectral_diff_matrix_jax(n, xmin=0, xmax=2*jnp.pi):
+        h = 2 * jnp.pi / n
+        kk = jnp.arange(1, n)
+        n_half = n // 2
+        topc = 1 / jnp.sin(jnp.arange(1, n_half + 1) * h / 2)
+        temp = jnp.concatenate((topc, jnp.flip(topc[:n_half])))
+        col1 = jnp.concatenate((jnp.array([0]), 0.5 * ((-1) ** kk) * temp))
+        row1 = -col1
+        vals = jnp.concatenate((row1[-1:0:-1], col1))
+        a, b = jnp.ogrid[0:len(col1), len(row1)-1:-1:-1]
+        return 2 * jnp.pi / (xmax - xmin) * vals[a + b]
 
-    return tangent.transpose(), normal.transpose(), binormal.transpose(), curvature[:,0], torsion, G0, axis_length, varphi
+    d_d_phi = spectral_diff_matrix_jax(nphi, xmax=2 * jnp.pi / nfp)
+    d_varphi_d_phi = B0_over_abs_G0 * d_l_d_phi
+    d_d_varphi = d_d_phi / d_varphi_d_phi
 
+    # Determine helicity
+    jax_normal_cartesian = normal.transpose()
+    jax_normal_cylindrical = jnp.array( [jax_normal_cartesian[0]  * jnp.cos(phi_vals) + jax_normal_cartesian[1]  * jnp.sin(phi_vals), - jax_normal_cartesian[0]  * jnp.sin(phi_vals) + jax_normal_cartesian[1]  * jnp.cos(phi_vals), jax_normal_cartesian[2]])
+    normal_cylindrical = jax_normal_cylindrical.transpose()
+    x_positive = normal_cylindrical[:, 0] >= 0
+    z_positive = normal_cylindrical[:, 2] >= 0
+    quadrant = jnp.zeros(nphi + 1)
+    quadrant = quadrant.at[jnp.where(x_positive & z_positive)].set(1)
+    quadrant = quadrant.at[jnp.where(~x_positive & z_positive)].set(2)
+    quadrant = quadrant.at[jnp.where(~x_positive & ~z_positive)].set(3)
+    quadrant = quadrant.at[jnp.where(x_positive & ~z_positive)].set(4)
+    quadrant = quadrant.at[nphi].set(quadrant[0])
+    delta_quadrant = quadrant[1:] - quadrant[:-1]
+    increment = jnp.sum(1 * (quadrant[:-1] == 4) * (quadrant[1:] == 1))
+    decrement = jnp.sum(1 * (quadrant[:-1] == 1) * (quadrant[1:] == 4))
+    counter = jnp.sum(delta_quadrant) + increment - decrement
+    helicity = counter * spsi * sG
+
+    def sigma_equation_residual(curvature, torsion, sigma, etabar, d_d_varphi, iota, G0, B0, helicity):
+        etaOcurv2 = etabar**2 / curvature**2
+        eq = jnp.matmul(d_d_varphi, sigma) \
+        + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
+        - 2 * etaOcurv2 * (-spsi * torsion + I2 / B0) * G0 / B0
+        return eq
+
+    res = sigma_equation_residual(curvature[:,0], torsion, sigma, etabar, d_d_varphi, iota, G0, B0, helicity)
+
+    X1c = etabar / curvature
+    Y1s = sG * spsi * curvature / etabar
+    Y1c = sG * spsi * curvature * sigma / etabar
+    p = + X1c * X1c + Y1s * Y1s + Y1c * Y1c
+    q = - X1c * Y1s
+    elongation = (p + jnp.sqrt(p * p - 4 * q * q)) / (2 * jnp.abs(q))
+    # mean_elongation = jnp.sum(elongation * d_l_d_phi) / jnp.sum(d_l_d_phi)
+
+    if debug:
+        return tangent.transpose(), normal.transpose(), binormal.transpose(), curvature[:,0], torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota
+    else:
+        return res, elongation
+
+def objective_function(params):
+    sigma = params[0:nphi]
+    rc = jnp.concatenate([jnp.array([1]),params[nphi:nphi+3]])
+    zs = jnp.concatenate([jnp.array([0]),params[nphi+3:nphi+6]])
+    etabar = params[-1]
+    residuals, elongation = nacx_residual(eR=rc, eZ=zs, etabar=etabar, sigma=sigma)
+    return jnp.sum(residuals**2) + jnp.sum(elongation**2)
+
+print('Do optimization')
+zs=zs[1:]
+rc=rc[1:]
+sigma = jnp.zeros(nphi)
+initial_params = jnp.concatenate([sigma,rc,zs,jnp.array([etabar])])
+print('Initial objective function: {}'.format(objective_function(initial_params)))
+
+# from scipy.optimize import minimize, least_squares
+# import numpy as np
+# result = minimize(objective_function, initial_params, method='BFGS', jac=np.array(jax.grad(objective_function)), options={'disp': True})
+# optimized_params = result.x
+
+# from jax.scipy.optimize import minimize
+# result = minimize(objective_function, initial_params, method="BFGS")
+# optimized_params = result.x
+
+import jaxopt
+tol_optimization=1e-5
+max_nfev_optimization=100
+optimizer = jaxopt.ScipyMinimize(fun=objective_function, method='L-BFGS-B', tol=tol_optimization, maxiter=max_nfev_optimization, jit=True)#, options={'jac':True})
+optimized_params, state = optimizer.run(initial_params)
+
+optimized_sigma, optimized_rc, optimized_zs, optimized_etabar = optimized_params[0:nphi], optimized_params[nphi:nphi+3], optimized_params[nphi+3:nphi+6], optimized_params[-1]
+print('Optimized rc: {}'.format(optimized_rc))
+print('Optimized zs: {}'.format(optimized_zs))
+print('Optimized etabar: {}'.format(optimized_etabar))
+print('Optimized objective function: {}'.format(objective_function(optimized_params)))
+objective_function(optimized_params)
+objective_function(optimized_params)
+rc = jnp.concatenate([jnp.array([1]), optimized_rc])
+zs = jnp.concatenate([jnp.array([0]), optimized_zs])
+etabar = optimized_etabar
+stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi, etabar=etabar)
+print(stel.helicity)
+stel.plot()
+exit()
+
+## DO DEBIGGING
+start_time=time()
+stel = Qsc(rc=rc, zs=zs, etabar=etabar, nfp=nfp, nphi=nphi)
+print('Calculating pyQSC values took {} seconds'.format(time() - start_time))
 start_time = time()
-jax_tangent_cartesian, jax_normal_cartesian, jax_binormal_cartesian, jax_curvature, jax_torsion, jax_G0, jax_axis_length, jax_varphi = compute_frenet_frames_and_curvature_torsion(rc, zs, phi)
+jax_tangent_cartesian, jax_normal_cartesian, jax_binormal_cartesian, jax_curvature, jax_torsion, jax_G0, jax_axis_length, jax_varphi, jax_d_d_varphi, res, sigma, iota = nacx_residual(rc, zs, nphi, debug=True)
 intermediate_time = time();print('Calculating JAX values took {} seconds'.format(time() - start_time))
 
 ## Test that the JAX values are the same as the pyQSC values
-tolerance = 1e-6
+a_tolerance = 1e-6
+r_tolerance = 1e-5
+phi = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
 jax_tangent_cylindrical = jnp.array([jax_tangent_cartesian[0] * jnp.cos(phi) + jax_tangent_cartesian[1] * jnp.sin(phi), - jax_tangent_cartesian[0] * jnp.sin(phi) + jax_tangent_cartesian[1] * jnp.cos(phi), jax_tangent_cartesian[2]])
 jax_normal_cylindrical = jnp.array( [jax_normal_cartesian[0]  * jnp.cos(phi) + jax_normal_cartesian[1]  * jnp.sin(phi), - jax_normal_cartesian[0]  * jnp.sin(phi) + jax_normal_cartesian[1]  * jnp.cos(phi), jax_normal_cartesian[2]])
 jax_binormal_cylindrical = jnp.array([jax_binormal_cartesian[0] * jnp.cos(phi) + jax_binormal_cartesian[1] * jnp.sin(phi), - jax_binormal_cartesian[0] * jnp.sin(phi) + jax_binormal_cartesian[1] * jnp.cos(phi), jax_binormal_cartesian[2]])
-npt.assert_allclose(jax_tangent_cylindrical, stel.tangent_cylindrical.transpose(), atol=tolerance, rtol=0)
-npt.assert_allclose(jax_normal_cylindrical, stel.normal_cylindrical.transpose(), atol=tolerance, rtol=0)
-npt.assert_allclose(jax_binormal_cylindrical, stel.binormal_cylindrical.transpose(), atol=tolerance, rtol=0)
-npt.assert_allclose(jax_curvature, stel.curvature, atol=tolerance, rtol=0)
-npt.assert_allclose(jax_torsion, stel.torsion, atol=tolerance, rtol=0)
-npt.assert_allclose(jax_G0, stel.G0, atol=tolerance, rtol=0)
-npt.assert_allclose(jax_axis_length, stel.axis_length, atol=tolerance, rtol=0)
-npt.assert_allclose(jax_varphi, stel.varphi, atol=tolerance, rtol=0)
+assert jnp.allclose(jax_tangent_cylindrical, stel.tangent_cylindrical.transpose(), atol=a_tolerance, rtol=r_tolerance)
+assert jnp.allclose(jax_normal_cylindrical, stel.normal_cylindrical.transpose(), atol=a_tolerance, rtol=r_tolerance)
+assert jnp.allclose(jax_binormal_cylindrical, stel.binormal_cylindrical.transpose(), atol=a_tolerance, rtol=r_tolerance)
+assert jnp.allclose(jax_curvature, stel.curvature, atol=a_tolerance, rtol=r_tolerance)
+assert jnp.allclose(jax_torsion, stel.torsion, atol=a_tolerance, rtol=r_tolerance)
+assert jnp.allclose(jax_G0, stel.G0, atol=a_tolerance, rtol=r_tolerance)
+assert jnp.allclose(jax_axis_length, stel.axis_length, atol=a_tolerance, rtol=r_tolerance)
+assert jnp.allclose(jax_varphi, stel.varphi, atol=a_tolerance, rtol=r_tolerance)
+assert jnp.allclose(jax_d_d_varphi, stel.d_d_varphi, atol=a_tolerance, rtol=r_tolerance)
+from qsc.calculate_r1 import _residual, _jacobian
+stel.sigma0 = sigma[0]
+assert jnp.allclose(res, _residual(stel, jnp.concatenate([jnp.array([iota]), sigma[1:]])), atol=a_tolerance, rtol=r_tolerance)
