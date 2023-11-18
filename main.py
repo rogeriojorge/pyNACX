@@ -121,20 +121,27 @@ def objective_function(params):
     iota = params[-1]
     residuals, elongation = nacx_residual(eR=rc, eZ=zs, etabar=etabar, sigma=sigma, iota=iota)
     return 1e3*jnp.sum(residuals**2)/nphi + 1e-3*jnp.sum(elongation**2)/nphi + 1e3*(iota-iota_desired)**2
-    # return jnp.array(residuals)
 
-# print('Do optimization')
-# zs=zs[1:]
-# rc=rc[1:]
-# sigma = jnp.zeros(nphi)
-# initial_params = jnp.concatenate([sigma,rc,zs,jnp.array([etabar,iota_desired])])
-# Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi, etabar=etabar)
-# print('Initial objective function: {}'.format(objective_function(initial_params)))
+print('Do optimization')
+zs=zs[1:]
+rc=rc[1:]
+sigma = jnp.zeros(nphi)
+initial_params = jnp.concatenate([sigma,rc,zs,jnp.array([etabar,iota_desired])])
+Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi, etabar=etabar)
+print('Initial objective function: {}'.format(objective_function(initial_params)))
 
-# from scipy.optimize import minimize, least_squares
+from scipy.optimize import minimize
+start_time = time()
+result = minimize(objective_function, initial_params, method='BFGS', jac=jax.grad(objective_function), options={'disp':True, 'maxiter':1e4})
+print('Optimization took {} seconds'.format(time() - start_time))
 # import numpy as np
-# result = minimize(objective_function, initial_params, method='BFGS', jac=jax.grad(objective_function), options={'disp': True})
-# optimized_params = result.x
+from scipy.optimize import least_squares
+# def objective_function_jac(params):
+#     return np.array(jax.jacfwd(objective_function)(params))
+# def objective_function_np(params):
+#     return np.array(objective_function(params))
+# result = least_squares(objective_function_np, initial_params, jac=objective_function_jac, verbose=2)#, method='lm', verbose=2)
+optimized_params = result.x
 
 # from jax.scipy.optimize import minimize
 # result = minimize(objective_function, initial_params, method="BFGS")
@@ -146,22 +153,22 @@ def objective_function(params):
 # optimizer = jaxopt.ScipyMinimize(fun=objective_function, method='L-BFGS-B', tol=tol_optimization, maxiter=max_nfev_optimization, jit=True)#, options={'jac':True})
 # optimized_params, state = optimizer.run(initial_params)
 
-# optimized_sigma, optimized_rc, optimized_zs, optimized_etabar, optimized_iota = optimized_params[0:nphi], optimized_params[nphi:nphi+3], optimized_params[nphi+3:nphi+6], optimized_params[-2], optimized_params[-1]
-# print('Optimized rc: {}'.format(optimized_rc))
-# print('Optimized zs: {}'.format(optimized_zs))
-# print('Optimized etabar: {}'.format(optimized_etabar))
-# print('Optimized iota: {}'.format(optimized_iota))
-# print('Optimized objective function: {}'.format(objective_function(optimized_params)))
-# objective_function(optimized_params)
-# objective_function(optimized_params)
-# rc = jnp.concatenate([jnp.array([1]), optimized_rc])
-# zs = jnp.concatenate([jnp.array([0]), optimized_zs])
-# etabar = optimized_etabar
-# stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi, etabar=etabar)
-# print(f'True iota: {stel.iota}')
+optimized_sigma, optimized_rc, optimized_zs, optimized_etabar, optimized_iota = optimized_params[0:nphi], optimized_params[nphi:nphi+3], optimized_params[nphi+3:nphi+6], optimized_params[-2], optimized_params[-1]
+print('Optimized rc: {}'.format(optimized_rc))
+print('Optimized zs: {}'.format(optimized_zs))
+print('Optimized etabar: {}'.format(optimized_etabar))
+print('Optimized iota: {}'.format(optimized_iota))
+print('Optimized objective function: {}'.format(objective_function(optimized_params)))
+objective_function(optimized_params)
+objective_function(optimized_params)
+rc = jnp.concatenate([jnp.array([1]), optimized_rc])
+zs = jnp.concatenate([jnp.array([0]), optimized_zs])
+etabar = optimized_etabar
+stel = Qsc(rc=rc, zs=zs, nfp=nfp, nphi=nphi, etabar=etabar)
+print(f'True iota: {stel.iota}')
 # stel.plot()
 # stel.plot_boundary(r=0.1)
-# exit()
+exit()
 
 ## DO DEBIGGING
 # start_time=time()
