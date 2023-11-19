@@ -22,7 +22,11 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
             eR[jn] * (-n * n * cosangle), eZ[jn] * (-n * n * sinangle),
             eR[jn] * (n * n * n * sinangle), eZ[jn] * (-n * n * n * cosangle)])
 
-    def spectral_diff_matrix_jax(n, xmin=0, xmax=2*jnp.pi):
+    @jit
+    def spectral_diff_matrix_jax():
+        n=nphi
+        xmin=0
+        xmax=2 * jnp.pi / nfp
         h = 2 * jnp.pi / n
         kk = jnp.arange(1, n)
         n_half = n // 2
@@ -34,6 +38,7 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
         a, b = jnp.ogrid[0:len(col1), len(row1)-1:-1:-1]
         return 2 * jnp.pi / (xmax - xmin) * vals[a + b]
 
+    @jit
     def determine_helicity(normal_cylindrical):
         x_positive = normal_cylindrical[:, 0] >= 0
         z_positive = normal_cylindrical[:, 2] >= 0
@@ -60,7 +65,8 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
     d3_r_d_phi3_cylindrical = jnp.stack([R0ppp - 3 * R0p, 3 * R0pp - R0, Z0ppp]).T
 
     tangent_cylindrical = d_r_d_phi_cylindrical / d_l_d_phi[:, None]
-    d_tangent_d_l_cylindrical = (-d_r_d_phi_cylindrical * d2_l_d_phi2[:, None] / d_l_d_phi[:, None] + d2_r_d_phi2_cylindrical) / (d_l_d_phi[:, None] * d_l_d_phi[:, None])
+    d_tangent_d_l_cylindrical = (-d_r_d_phi_cylindrical * d2_l_d_phi2[:, None] / d_l_d_phi[:, None] \
+                                 +d2_r_d_phi2_cylindrical) / (d_l_d_phi[:, None] * d_l_d_phi[:, None])
 
     curvature = jnp.sqrt(jnp.sum(d_tangent_d_l_cylindrical**2, axis=1))
     axis_length = jnp.sum(d_l_d_phi) * d_phi * nfp
@@ -73,15 +79,15 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
     torsion_denominator = jnp.sum(jnp.cross(d_r_d_phi_cylindrical, d2_r_d_phi2_cylindrical)**2, axis=1)
     torsion = torsion_numerator / torsion_denominator
 
-    d_d_phi = spectral_diff_matrix_jax(nphi, xmax=2 * jnp.pi / nfp)
+    d_d_phi = spectral_diff_matrix_jax()
     d_varphi_d_phi = B0_over_abs_G0 * d_l_d_phi
     d_d_varphi = d_d_phi / d_varphi_d_phi[:, None]
     helicity = determine_helicity(normal_cylindrical)
 
     @jit
     def sigma_equation_residual(x):
-        sigma = x.at[0].set(sigma0)
         iota = x[0]
+        sigma = x.at[0].set(sigma0)
         etaOcurv2 = etabar**2 / curvature**2
         return jnp.matmul(d_d_varphi, sigma) \
         + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
@@ -89,18 +95,26 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
 
     @jit
     def sigma_equation_jacobian(x):
-        sigma = x.at[0].set(sigma0)
         iota = x[0]
+        sigma = x.at[0].set(sigma0)
         etaOcurv2 = etabar**2 / curvature**2
         jac = d_d_varphi + (iota + helicity * nfp) * 2 * jnp.diag(sigma)
         return jac.at[:, 0].set(etaOcurv2**2 + 1 + sigma**2)
 
-    #### IMPLEMENT NEWTON'S METHOD WITH 20 ITERATIONS AND NO TOLERANCE ####
+    @partial(jit, static_argnums=(1,))
+    def newton(x0, niter=5):
+        def body_fun(i, x):
+            residual = sigma_equation_residual(x)
+            jacobian = sigma_equation_jacobian(x)
+            return x - jnp.linalg.solve(jacobian, residual)
+        x = jax.lax.fori_loop(0, niter, body_fun, x0)
+        return x
 
     x0 = jnp.full(nphi, sigma0)
     x0 = x0.at[0].set(0)  # Initial guess for iota
     sigma = newton(x0)
     iota = sigma[0]
+    iotaN = iota + helicity * nfp
     sigma = sigma.at[0].set(sigma0)
 
     x = jnp.concatenate([jnp.array([iota]), sigma[1:]])
@@ -114,15 +128,18 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
     q = - X1c * Y1s
     elongation = (p + jnp.sqrt(p * p - 4 * q * q)) / (2 * jnp.abs(q))
 
-    if debug:
-        return tangent_cylindrical, normal_cylindrical, binormal_cylindrical, curvature, torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota, helicity, elongation, jac
-    else:
-        return sigma, elongation
+    d_X1c_d_varphi = jnp.matmul(d_d_varphi, X1c)
+    d_Y1s_d_varphi = jnp.matmul(d_d_varphi, Y1s)
+    d_Y1c_d_varphi = jnp.matmul(d_d_varphi, Y1c)
+    factor = spsi * B0 / d_l_d_varphi
+    tn = sG * B0 * curvature
+    nt = tn
+    bb = factor * (X1c * d_Y1s_d_varphi - iotaN * X1c * Y1c)
+    nn = factor * (d_X1c_d_varphi * Y1s + iotaN * X1c * Y1c)
+    bn = factor * (-sG * spsi * d_l_d_varphi * torsion - iotaN * X1c * X1c)
+    nb = factor * (d_Y1c_d_varphi * Y1s - d_Y1s_d_varphi * Y1c + sG * spsi * d_l_d_varphi * torsion + iotaN * (Y1s * Y1s + Y1c * Y1c))
+    grad_B_colon_grad_B = tn * tn + nt * nt + bb * bb + nn * nn + nb * nb + bn * bn
+    L_grad_B = B0 * jnp.sqrt(2 / grad_B_colon_grad_B)
+    inv_L_grad_B = 1.0 / L_grad_B
 
-nfp = 2
-rc = jnp.array([1, 0.1, 0.01, 0.001])
-zs = jnp.array([0, 0.1, 0.01, 0.001])
-etabar = 0.9
-nphi = 31
-residuals, elongation = nacx_residual(eR=rc, eZ=zs, etabar=etabar, nphi=nphi)
-print(residuals)
+    return (tangent_cylindrical, normal_cylindrical, binormal_cylindrical, curvature, torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota, helicity, elongation, jac, inv_L_grad_B) if debug else (iota, elongation, inv_L_grad_B)
