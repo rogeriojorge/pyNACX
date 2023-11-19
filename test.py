@@ -12,7 +12,7 @@ I2 = 0
 B0 = 1
 etabar = 0.9
 sigma0=0.2
-nphi = 7
+nphi = 51
 
 start_time=time();stel = Qsc(rc=rc, zs=zs, etabar=etabar, nfp=nfp, nphi=nphi, sigma0=sigma0)
 print('Calculating pyQSC values took {} seconds'.format(time() - start_time))
@@ -51,12 +51,12 @@ assert jnp.allclose(jax_axis_length, stel.axis_length, atol=a_tolerance, rtol=r_
 assert jnp.allclose(jax_varphi, stel.varphi, atol=a_tolerance, rtol=r_tolerance)
 assert jnp.allclose(jax_d_d_varphi, stel.d_d_varphi, atol=a_tolerance, rtol=r_tolerance)
 assert jnp.allclose(helicity, stel.helicity, atol=a_tolerance, rtol=r_tolerance)
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 # plt.plot(elongation)
 # plt.plot(stel.elongation)
 # plt.show()
 # exit()
-# print(elongation)
+print(elongation-stel.elongation)
 assert jnp.allclose(elongation, stel.elongation, atol=a_tolerance, rtol=r_tolerance)
 assert jnp.allclose(inv_L_grad_B, stel.inv_L_grad_B, atol=a_tolerance, rtol=r_tolerance)
 assert jnp.allclose(sigma, stel.sigma, atol=a_tolerance, rtol=r_tolerance)

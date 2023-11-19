@@ -101,19 +101,31 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
         jac = d_d_varphi + (iota + helicity * nfp) * 2 * jnp.diag(sigma)
         return jac.at[:, 0].set(etaOcurv2**2 + 1 + sigma**2)
 
+    # @partial(jit, static_argnums=(1,))
+    # def newton(x0, niter=5):
+    #     def body_fun(i, x):
+    #         residual = sigma_equation_residual(x)
+    #         jacobian = sigma_equation_jacobian(x)
+    #         step = jax.scipy.linalg.solve(jacobian, -residual)
+    #         return x + step
+    #     x = jax.lax.fori_loop(0, niter, body_fun, x0)
+    #     return x
     @partial(jit, static_argnums=(1,))
-    def newton(x0, niter=5):
+    def gradient_descent_root_finding(x0, niter=5000, learning_rate=5e-4):
         def body_fun(i, x):
             residual = sigma_equation_residual(x)
             jacobian = sigma_equation_jacobian(x)
-            step = jax.scipy.linalg.solve(jacobian, -residual)
+            grad_residual = jnp.matmul(jacobian.T, residual)  # Gradient of the residual
+            step = -learning_rate * grad_residual
+            # jax.debug.breakpoint()
             return x + step
-        x = jax.lax.fori_loop(0, niter, body_fun, x0)
+        x = lax.fori_loop(0, niter, body_fun, x0)
         return x
 
     x0 = jnp.full(nphi, sigma0)
     x0 = x0.at[0].set(0)  # Initial guess for iota
-    sigma = newton(x0)
+    # sigma = newton(x0)
+    sigma = gradient_descent_root_finding(x0)
     iota = sigma[0]
     iotaN = iota + helicity * nfp
     sigma = sigma.at[0].set(sigma0)
