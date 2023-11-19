@@ -126,7 +126,7 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
     #     return x
 
     x0 = jnp.full(nphi, sigma0)
-    x0 = replace_first_element(x0, 0)
+    x0 = replace_first_element(x0, 0.)
     sigma = newton(x0)
     # sigma = gradient_descent_root_finding(x0)
     iota = sigma[0]

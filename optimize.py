@@ -10,11 +10,11 @@ import numpy as np
 from scipy.optimize import minimize
 from main import nacx_residual
 
-nfp = 4
+nfp = 3
 nfourier = 6
-etabar = 0.8
+etabar = 0.9
 iota_min = 0.41
-nphi = 131
+nphi = 71
 
 rc_in = jnp.power(10.0, -jnp.arange(nfourier))
 zs_in = jnp.concatenate([jnp.array([0]), jnp.power(10.0, -jnp.arange(1, nfourier))])
@@ -31,48 +31,46 @@ def objective_function(params):
     #      + jnp.sum(inv_L_grad_B**2)/nphi \
     #      + jnp.sum(elongation**2)/nphi \
     #      + 1e3*jnp.abs(jnp.min(jnp.array([jnp.array([0]),jnp.array([(jnp.abs(iota)-jnp.abs(iota_min))])])))**2 \
-    return jnp.concatenate([inv_L_grad_B, elongation, jnp.array([jnp.abs(iota)-jnp.abs(iota_min)])])
+    # return jnp.concatenate([inv_L_grad_B, elongation, jnp.array([1e3*jnp.abs(jnp.min(jnp.array([jnp.array([0]),jnp.array([(jnp.abs(iota)-jnp.abs(iota_min))])])))])])
+    return jnp.concatenate([inv_L_grad_B, elongation, 1e2*jnp.array([jnp.abs(iota)-jnp.abs(iota_min)])])
 
 @jit
 def grad_objective_function(params):
-    grad_func = jax.grad(objective_function)(params)
+    grad_func = jax.jacfwd(objective_function)(params)
     return grad_func
 
 # @jit
 # def hess_objective_function(params):
-#     hess_func = jax.hessian(objective_function)(params)
+#     hess_func = jax.jacfwd(grad_objective_function)(params)
 #     return hess_func
 
 print("Optimizing with {} fourier modes".format(nfourier))
 initial_params = jnp.concatenate([rc_in[1:],zs_in[1:],jnp.array([etabar])])
-# print("First jit'ing objective function and gradient")
-# print('Initial objective function: {}'.format(objective_function(initial_params)))
-# grad_objective_function(initial_params)
-# hess_objective_function(initial_params)
+print("First jit'ing objective function and gradient")
+start_time=time();print(f'Initial sum of objective function: {jnp.sum(objective_function(initial_params)**2):.1e} took {(time() - start_time):.1f} seconds')
+start_time=time();print(f'Initial sum of grad of objective function: {jnp.sum(grad_objective_function(initial_params)**2):.1e} took {(time() - start_time):.1f} seconds')
+# start_time=time();print(f'Initial sum of hess of objective function: {jnp.sum(hess_objective_function(initial_params)**2):.1e} took {(time() - start_time):.1f} seconds')
 
 # from scipy.optimize import minimize
 # start_time = time()
-# # result = minimize(objective_function, initial_params, method='Newton-CG', jac=grad_objective_function, hess=hess_objective_function, options={'disp':True, 'maxiter':1e3})
-# result = minimize(objective_function, initial_params, method='Newton-CG', jac=grad_objective_function, options={'disp':True, 'maxiter':1e3})
+# result = minimize(objective_function, initial_params, method='Newton-CG', jac=grad_objective_function, hess=hess_objective_function, options={'disp':True, 'maxiter':1e3})
+# # result = minimize(objective_function, initial_params, method='BFGS', jac=grad_objective_function, options={'disp':True, 'maxiter':1e3})
 # print('Final objective function {} took {} seconds'.format(result.fun, time() - start_time))
 
 import numpy as np
 from scipy.optimize import least_squares
 def objective_function_jac(params):
-    return np.array(jax.jacfwd(objective_function)(params))
+    return np.array(grad_objective_function(params))
 def objective_function_np(params):
     return np.array(objective_function(params))
-print(f'Initial sum of objective function: {np.sum(objective_function_np(initial_params)**2)}')
-print(f'Initial sum of grad of objective function: {np.sum(objective_function_jac(initial_params)**2)}')
 start_time = time()
-result = least_squares(objective_function_np, initial_params, jac=objective_function_jac, verbose=2, method='lm', x_scale='jac', max_nfev=1000)
+result = least_squares(objective_function_np, initial_params, jac=objective_function_jac, verbose=2, method='lm', x_scale='jac', max_nfev=int(5e3))
 print('Optimization took {} seconds'.format(time() - start_time))
-
-optimized_params = result.x
 
 # from jax.scipy.optimize import minimize
 # result = minimize(objective_function, initial_params, method="BFGS")
-# optimized_params = result.x
+
+optimized_params = result.x
 
 # import jaxopt
 # tol_optimization=1e-6
