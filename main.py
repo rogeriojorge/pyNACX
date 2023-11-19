@@ -101,28 +101,14 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
         jac = d_d_varphi + (iota + helicity * nfp) * 2 * jnp.diag(sigma)
         return jac.at[:, 0].set(etaOcurv2**2 + 1 + sigma**2)
 
-    # @partial(jit, static_argnums=(1,))
-    # def newton(x0, niter=5):
-    #     def body_fun(i, x):
-    #         residual = sigma_equation_residual(x)
-    #         jacobian = sigma_equation_jacobian(x)
-    #         return x - jnp.dot(jnp.linalg.inv(jacobian), residual)
-    #     x = jax.lax.fori_loop(0, niter, body_fun, x0)
-    #     return x
-    from jax.scipy.linalg import lu_factor, lu_solve
-    from jax.lax import fori_loop
     @partial(jit, static_argnums=(1,))
     def newton(x0, niter=5):
         def body_fun(i, x):
             residual = sigma_equation_residual(x)
             jacobian = sigma_equation_jacobian(x)
-
-            lu, piv = lu_factor(jacobian)
-            delta_x = lu_solve((lu, piv), residual)
-
-            return x - delta_x
-
-        x = fori_loop(0, niter, body_fun, x0)
+            step = jax.scipy.linalg.solve(jacobian, -residual)
+            return x + step
+        x = jax.lax.fori_loop(0, niter, body_fun, x0)
         return x
 
     x0 = jnp.full(nphi, sigma0)
