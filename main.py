@@ -106,7 +106,7 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
         def body_fun(i, x):
             residual = sigma_equation_residual(x)
             jacobian = sigma_equation_jacobian(x)
-            return x - jnp.linalg.solve(jacobian, residual)
+            return x - jnp.dot(jnp.linalg.inv(jacobian), residual)
         x = jax.lax.fori_loop(0, niter, body_fun, x0)
         return x
 
