@@ -85,9 +85,14 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
     helicity = determine_helicity(normal_cylindrical)
 
     @jit
+    def replace_first_element(x, new_value):
+        return jnp.concatenate([jnp.array([new_value]), x[1:]])
+
+    @jit
     def sigma_equation_residual(x):
         iota = x[0]
-        sigma = x.at[0].set(sigma0)
+        sigma = replace_first_element(x, sigma0)
+        # sigma = x.at[0].set(sigma0)
         etaOcurv2 = etabar**2 / curvature**2
         return jnp.matmul(d_d_varphi, sigma) \
         + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
@@ -96,7 +101,8 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
     @jit
     def sigma_equation_jacobian(x):
         iota = x[0]
-        sigma = x.at[0].set(sigma0)
+        sigma = replace_first_element(x, sigma0)
+        # sigma = x.at[0].set(sigma0)
         etaOcurv2 = etabar**2 / curvature**2
         jac = d_d_varphi + (iota + helicity * nfp) * 2 * jnp.diag(sigma)
         return jac.at[:, 0].set(etaOcurv2**2 + 1 + sigma**2)
@@ -117,18 +123,19 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
             jacobian = sigma_equation_jacobian(x)
             grad_residual = jnp.matmul(jacobian.T, residual)  # Gradient of the residual
             step = -learning_rate * grad_residual
-            # jax.debug.breakpoint()
             return x + step
         x = lax.fori_loop(0, niter, body_fun, x0)
         return x
 
     x0 = jnp.full(nphi, sigma0)
-    x0 = x0.at[0].set(0)  # Initial guess for iota
+    # x0 = x0.at[0].set(0)  # Initial guess for iota
+    x0 = replace_first_element(x0, 0)
     # sigma = newton(x0)
     sigma = gradient_descent_root_finding(x0)
     iota = sigma[0]
     iotaN = iota + helicity * nfp
-    sigma = sigma.at[0].set(sigma0)
+    # sigma = sigma.at[0].set(sigma0)
+    sigma = replace_first_element(sigma, sigma0)
 
     x = jnp.concatenate([jnp.array([iota]), sigma[1:]])
     res = sigma_equation_residual(x)
