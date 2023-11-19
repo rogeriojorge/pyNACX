@@ -56,7 +56,7 @@ import matplotlib.pyplot as plt
 # plt.plot(stel.elongation)
 # plt.show()
 # exit()
-print(elongation-stel.elongation)
+# print(elongation-stel.elongation)
 assert jnp.allclose(elongation, stel.elongation, atol=a_tolerance, rtol=r_tolerance)
 assert jnp.allclose(inv_L_grad_B, stel.inv_L_grad_B, atol=a_tolerance, rtol=r_tolerance)
 assert jnp.allclose(sigma, stel.sigma, atol=a_tolerance, rtol=r_tolerance)
