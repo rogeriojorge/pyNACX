@@ -110,7 +110,7 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
     #         return x + step
     #     x = jax.lax.fori_loop(0, niter, body_fun, x0)
     #     return x
-    @partial(jit, static_argnums=(1,))
+    @partial(jit, static_argnums=(1,2))
     def gradient_descent_root_finding(x0, niter=5000, learning_rate=5e-4):
         def body_fun(i, x):
             residual = sigma_equation_residual(x)
