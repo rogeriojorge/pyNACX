@@ -1,13 +1,10 @@
 import jax
 import jax.numpy as jnp
-from jax import jit
-from qsc import Qsc
-from time import time
+from jax import jit, grad, lax
 from functools import partial
-import matplotlib.pyplot as plt
 
-@partial(jit, static_argnums=(5,6,7,8,9,10,11,12))
-def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0, sigma=jnp.zeros(31), iota=0.4,
+@partial(jit, static_argnums=(3,4,5,6,7,8,9,10))
+def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
                   nphi=31, sigma0=0, I2=0, spsi=1, sG=1, B0=1, nfp=2, debug=False):
     assert nphi % 2 == 1, 'nphi must be odd'
     phi = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
@@ -36,17 +33,6 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0, si
         vals = jnp.concatenate((row1[-1:0:-1], col1))
         a, b = jnp.ogrid[0:len(col1), len(row1)-1:-1:-1]
         return 2 * jnp.pi / (xmax - xmin) * vals[a + b]
-
-    def sigma_equation_residual(curvature, torsion, sigma, etabar, d_d_varphi, iota, G0, B0, helicity):
-        etaOcurv2 = etabar**2 / curvature**2
-        return jnp.matmul(d_d_varphi, sigma) \
-        + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
-        - 2 * etaOcurv2 * (-spsi * torsion + I2 / B0) * G0 / B0
-
-    def sigma_equation_jacobian(curvature, sigma, etabar, d_d_varphi, iota, helicity):
-        etaOcurv2 = etabar**2 / curvature**2
-        jac = d_d_varphi + (iota + helicity * nfp) * 2 * jnp.diag(sigma)
-        return jac.at[:, 0].set(etaOcurv2**2 + 1 + sigma**2)
 
     def determine_helicity(normal_cylindrical):
         x_positive = normal_cylindrical[:, 0] >= 0
@@ -92,9 +78,34 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0, si
     d_d_varphi = d_d_phi / d_varphi_d_phi[:, None]
     helicity = determine_helicity(normal_cylindrical)
 
+    @jit
+    def sigma_equation_residual(x):
+        sigma = x.at[0].set(sigma0)
+        iota = x[0]
+        etaOcurv2 = etabar**2 / curvature**2
+        return jnp.matmul(d_d_varphi, sigma) \
+        + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
+        - 2 * etaOcurv2 * (-spsi * torsion + I2 / B0) * G0 / B0
+
+    @jit
+    def sigma_equation_jacobian(x):
+        sigma = x.at[0].set(sigma0)
+        iota = x[0]
+        etaOcurv2 = etabar**2 / curvature**2
+        jac = d_d_varphi + (iota + helicity * nfp) * 2 * jnp.diag(sigma)
+        return jac.at[:, 0].set(etaOcurv2**2 + 1 + sigma**2)
+
+    #### IMPLEMENT NEWTON'S METHOD WITH 20 ITERATIONS AND NO TOLERANCE ####
+
+    x0 = jnp.full(nphi, sigma0)
+    x0 = x0.at[0].set(0)  # Initial guess for iota
+    sigma = newton(x0)
+    iota = sigma[0]
     sigma = sigma.at[0].set(sigma0)
-    res = sigma_equation_residual(curvature, torsion, sigma, etabar, d_d_varphi, iota, G0, B0, helicity)
-    jac = sigma_equation_jacobian(curvature, sigma, etabar, d_d_varphi, iota, helicity)
+
+    x = jnp.concatenate([jnp.array([iota]), sigma[1:]])
+    res = sigma_equation_residual(x)
+    jac = sigma_equation_jacobian(x)
 
     X1c = etabar / curvature
     Y1s = sG * spsi * curvature / etabar
@@ -106,4 +117,12 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0, si
     if debug:
         return tangent_cylindrical, normal_cylindrical, binormal_cylindrical, curvature, torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota, helicity, elongation, jac
     else:
-        return res, elongation
+        return sigma, elongation
+
+nfp = 2
+rc = jnp.array([1, 0.1, 0.01, 0.001])
+zs = jnp.array([0, 0.1, 0.01, 0.001])
+etabar = 0.9
+nphi = 31
+residuals, elongation = nacx_residual(eR=rc, eZ=zs, etabar=etabar, nphi=nphi)
+print(residuals)
