@@ -111,6 +111,8 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
             residual = sigma_equation_residual(x)
             jacobian = sigma_equation_jacobian(x)
             step = jax.scipy.linalg.solve(jacobian, -residual)
+            # inv_jac = jnp.linalg.inv(jacobian)
+            # step = -jnp.matmul(inv_jac,residual)
             return x + step
         x = jax.lax.fori_loop(0, niter, body_fun, x0)
         return x

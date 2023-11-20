@@ -1,6 +1,6 @@
 from time import time
 from qsc import Qsc
-from main import nacx_residual
+from main_jax import nacx_residual
 import jax.numpy as jnp
 
 nfp = 2
