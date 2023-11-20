@@ -2,7 +2,7 @@ import torch
 from torch import jit
 import math
 
-@jit.script
+#@jit.script
 def compute_terms(jn: int, phi: torch.Tensor, n_values: torch.Tensor, eR: torch.Tensor, eZ: torch.Tensor):
     n = n_values[jn]
     sinangle = torch.sin(n * phi)
@@ -12,7 +12,7 @@ def compute_terms(jn: int, phi: torch.Tensor, n_values: torch.Tensor, eR: torch.
                         eR[jn] * (-n * n * cosangle), eZ[jn] * (-n * n * sinangle),
                         eR[jn] * (n * n * n * sinangle), eZ[jn] * (-n * n * n * cosangle)])
 
-@jit.script
+#@jit.script
 def spectral_diff_matrix(nphi: int, nfp: int, device: torch.device):
     pi = torch.tensor(math.pi)
     xmin = 0
@@ -29,7 +29,7 @@ def spectral_diff_matrix(nphi: int, nfp: int, device: torch.device):
     b = torch.arange(len(row1) - 1, -1, -1).unsqueeze(1).T
     return 2 * pi / (xmax - xmin) * vals[a + b]
 
-@jit.script
+#@jit.script
 def determine_helicity(normal_cylindrical: torch.Tensor, spsi: float, sG: float):
     x_positive = normal_cylindrical[:, 0] >= 0
     z_positive = normal_cylindrical[:, 2] >= 0
@@ -41,12 +41,12 @@ def determine_helicity(normal_cylindrical: torch.Tensor, spsi: float, sG: float)
     decrement = torch.sum((quadrant[:-1] == 1) & (quadrant[1:] == 4))
     return (torch.sum(delta_quadrant) + increment - decrement) * spsi * sG
 
-@jit.script
+#@jit.script
 def replace_first_element(x: torch.Tensor, new_value: float, device: torch.device):
     return torch.cat([torch.tensor([new_value], device=device), x[1:]])
 
-@jit.script
-def sigma_equation_residual(x: torch.Tensor, sigma0: float, curvature: torch.Tensor, etabar: float, 
+#@jit.script
+def sigma_equation_residual(x: torch.Tensor, sigma0: float, curvature: torch.Tensor, etabar: torch.Tensor, 
                             spsi: float, torsion: torch.Tensor, I2: float, B0: float, G0: float, 
                             helicity: float, nfp: int, d_d_varphi: torch.Tensor, device: torch.device):
     iota = x[0]
@@ -56,32 +56,40 @@ def sigma_equation_residual(x: torch.Tensor, sigma0: float, curvature: torch.Ten
     + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
     - 2 * etaOcurv2 * (-spsi * torsion + I2 / B0) * G0 / B0
 
-@jit.script
-def sigma_equation_jacobian(x: torch.Tensor, sigma0: float, curvature: torch.Tensor, etabar: float, 
+#@jit.script
+def sigma_equation_jacobian(x: torch.Tensor, sigma0: float, curvature: torch.Tensor, etabar: torch.Tensor, 
                             helicity: float, nfp: int, d_d_varphi: torch.Tensor, device: torch.device):
     iota = x[0]
     sigma = replace_first_element(x, sigma0, device)
     etaOcurv2 = etabar**2 / curvature**2
     fill_value = (etaOcurv2**2 + 1 + sigma**2).unsqueeze(1)
     jac = d_d_varphi + (iota + helicity * nfp) * 2 * torch.diag(sigma)
-    return jac.index_fill_(1, torch.tensor(0, device=device), fill_value)
+    # return jac.index_fill_(1, torch.tensor(0, device=device), fill_value)
+    jac[:, 0] = fill_value.squeeze()
+    return jac
 
-@jit.script
-def newton(x0: torch.Tensor, niter: int, sigma0: float, curvature: torch.Tensor, etabar: float, 
+#@jit.script
+def newton(sigma0: float, curvature: torch.Tensor, etabar: torch.Tensor, 
            spsi: float, torsion: torch.Tensor, I2: float, B0: float, G0: float, 
            helicity: float, nfp: int, d_d_varphi: torch.Tensor, device: torch.device):
+    x0 = torch.full((len(torsion),), sigma0, device=device)
+    x0 = replace_first_element(x0, 0., device)
+
+    niter = 5
     for _ in range(niter):
         residual = sigma_equation_residual(x0, sigma0, curvature, etabar, spsi, torsion, I2, B0, G0, helicity, nfp, d_d_varphi, device)
         jacobian = sigma_equation_jacobian(x0, sigma0, curvature, etabar, helicity, nfp, d_d_varphi, device)
         # step = torch.linalg.solve(jacobian, -residual.unsqueeze(1)).squeeze(1)
         step = -torch.inverse(jacobian).matmul(residual.unsqueeze(1)).squeeze(1)
-        x0 = x0 + step
+        ### x0 = x0 + step
+        x0.add_(step)
+
     return x0
 
-@jit.script
-def nacx_residual(eR: torch.Tensor, eZ: torch.Tensor, etabar: float,
-                  device: torch.device, nphi: int, sigma0: float, 
-                  I2: float, spsi: float, sG: float, B0: float, nfp: int):
+# @jit.script
+def nacx_residual(eR: torch.Tensor, eZ: torch.Tensor, etabar: torch.Tensor,
+                  device: torch.device, nphi: int, nfp: int):
+    spsi=1.;I2=0.;sG=1.;B0=1.;sigma0=0.
     assert nphi % 2 == 1, 'nphi must be odd'
     pi = torch.tensor(math.pi)
     phi = torch.linspace(0, 2 * pi / nfp, nphi+1, device=device)[:-1]
@@ -115,13 +123,11 @@ def nacx_residual(eR: torch.Tensor, eZ: torch.Tensor, etabar: float,
     d_varphi_d_phi = B0_over_abs_G0 * d_l_d_phi
     d_d_varphi = d_d_phi / d_varphi_d_phi.unsqueeze(1)
     helicity = determine_helicity(normal_cylindrical, spsi, sG)
-    x0 = torch.full((nphi,), sigma0, device=device)
-    x0 = replace_first_element(x0, 0., device)
-    sigma = newton(x0, 4, sigma0, curvature, etabar, spsi, torsion, I2, B0, G0, helicity, nfp, d_d_varphi, device)
+    sigma = newton(sigma0, curvature, etabar, spsi, torsion, I2, B0, G0, helicity, nfp, d_d_varphi, device)
     iota = sigma[0]
     iotaN = iota + helicity * nfp
     sigma = replace_first_element(sigma, sigma0, device)
-    x = torch.cat([torch.tensor(iota, device=device).unsqueeze(0), sigma[1:].float()])
+    x = torch.cat([iota.unsqueeze(0), sigma[1:].float()])
     res = sigma_equation_residual(x, sigma0, curvature, etabar, spsi, torsion, I2, B0, G0, helicity, nfp, d_d_varphi, device)
     jac = sigma_equation_jacobian(x, sigma0, curvature, etabar, helicity, nfp, d_d_varphi, device)
     X1c = etabar / curvature
@@ -143,5 +149,5 @@ def nacx_residual(eR: torch.Tensor, eZ: torch.Tensor, etabar: float,
     grad_B_colon_grad_B = tn * tn + nt * nt + bb * bb + nn * nn + nb * nb + bn * bn
     L_grad_B = B0 * torch.sqrt(2 / grad_B_colon_grad_B)
     inv_L_grad_B = 1.0 / L_grad_B
-    # return (tangent_cylindrical, normal_cylindrical, binormal_cylindrical, curvature, torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota, helicity, elongation, jac, inv_L_grad_B) if debug else (iota, elongation, inv_L_grad_B)
-    return tangent_cylindrical, normal_cylindrical, binormal_cylindrical, curvature, torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota, helicity, elongation, jac, inv_L_grad_B, phi, d_d_phi
+    # return tangent_cylindrical, normal_cylindrical, binormal_cylindrical, curvature, torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota, helicity, elongation, jac, inv_L_grad_B, phi, d_d_phi
+    return iota, elongation, inv_L_grad_B

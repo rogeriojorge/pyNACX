@@ -1,4 +1,5 @@
 import jax
+jax.config.update('jax_platform_name', 'cpu')
 from jax import jit
 import jax.numpy as jnp
 from jax import grad
@@ -8,9 +9,9 @@ from functools import partial
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import minimize
-from main import nacx_residual
+from main_jax import nacx_residual
 
-nfp = 3
+nfp = 2
 nfourier = 6
 etabar = 0.9
 iota_min = 0.41
@@ -30,9 +31,9 @@ def objective_function(params):
     # return 0 \
     #      + jnp.sum(inv_L_grad_B**2)/nphi \
     #      + jnp.sum(elongation**2)/nphi \
-    #      + 1e3*jnp.abs(jnp.min(jnp.array([jnp.array([0]),jnp.array([(jnp.abs(iota)-jnp.abs(iota_min))])])))**2 \
+    #      + 1e2*(jnp.abs(jnp.max(jnp.array([jnp.array([0]),jnp.array([(1-jnp.abs(iota)/jnp.abs(iota_min))])]))))**2 \
     # return jnp.concatenate([inv_L_grad_B, elongation, jnp.array([1e3*jnp.abs(jnp.min(jnp.array([jnp.array([0]),jnp.array([(jnp.abs(iota)-jnp.abs(iota_min))])])))])])
-    return jnp.concatenate([inv_L_grad_B, elongation, 1e2*jnp.array([jnp.abs(iota)-jnp.abs(iota_min)])])
+    return jnp.concatenate([inv_L_grad_B, elongation, 1e2*jnp.array([jnp.abs(jnp.max(jnp.array([jnp.array([0]),jnp.array([(1-jnp.abs(iota)/jnp.abs(iota_min))])])))])])
 
 @jit
 def grad_objective_function(params):

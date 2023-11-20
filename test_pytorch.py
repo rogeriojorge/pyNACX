@@ -2,41 +2,38 @@ from time import time
 from qsc import Qsc
 from main_pytorch import nacx_residual
 import torch
-
-device = torch.device("mps")
+# device = torch.device("mps")
+device = torch.device("cpu")
 
 nfp = 2
 rc = torch.tensor([1, 0.1, 0.01, 0.001], device=device)
 zs = torch.tensor([0, 0.1, 0.01, 0.001], device=device)
-sG = 1
-spsi = 1
-I2 = 0
-B0 = 1
-etabar = 0.9
-sigma0=0.2
+etabar = torch.tensor(0.9, device=device)
 nphi = 31
 
 rc_qsc = rc.cpu()
 zs_qsc = zs.cpu()
-start_time=time();stel = Qsc(rc_qsc, zs_qsc, etabar=etabar, nfp=nfp, nphi=nphi, sigma0=sigma0)
+etabar_qsc = etabar.cpu().numpy()
+start_time=time();stel = Qsc(rc_qsc, zs_qsc, etabar=etabar_qsc, nfp=nfp, nphi=nphi)
 print('Calculating pyQSC values took {} seconds'.format(time() - start_time))
-start_time=time();stel = Qsc(rc_qsc, zs_qsc, etabar=etabar, nfp=nfp, nphi=nphi, sigma0=sigma0)
+start_time=time();stel = Qsc(rc_qsc, zs_qsc, etabar=etabar_qsc, nfp=nfp, nphi=nphi)
 print('Calculating pyQSC again  took {} seconds'.format(time() - start_time))
-start_time=time();stel = Qsc(rc_qsc, zs_qsc, etabar=etabar, nfp=nfp, nphi=nphi, sigma0=sigma0)
+start_time=time();stel = Qsc(rc_qsc, zs_qsc, etabar=etabar_qsc, nfp=nfp, nphi=nphi)
 print('Calculating pyQSC again  took {} seconds'.format(time() - start_time))
-start_time=time();stel = Qsc(rc_qsc, zs_qsc, etabar=etabar, nfp=nfp, nphi=nphi, sigma0=sigma0)
+start_time=time();stel = Qsc(rc_qsc, zs_qsc, etabar=etabar_qsc, nfp=nfp, nphi=nphi)
 print('Calculating pyQSC again  took {} seconds'.format(time() - start_time))
-intermediate_time = time();_ = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi, sigma0=sigma0, I2=I2, spsi=spsi, sG=sG, B0=B0, nfp=nfp)
+intermediate_time = time();_ = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi, nfp=nfp)
 print('Calculating TORCH values took {} seconds'.format(time() - intermediate_time))
-intermediate_time = time();_ = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi, sigma0=sigma0, I2=I2, spsi=spsi, sG=sG, B0=B0, nfp=nfp)
+intermediate_time = time();_ = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi, nfp=nfp)
 print('Calculating TORCH again  took {} seconds'.format(time() - intermediate_time))
-intermediate_time = time();_ = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi, sigma0=sigma0, I2=I2, spsi=spsi, sG=sG, B0=B0, nfp=nfp)
+intermediate_time = time();_ = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi, nfp=nfp)
+print('Calculating TORCH again  took {} seconds'.format(time() - intermediate_time))
+intermediate_time = time();_ = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi, nfp=nfp)
 print('Calculating TORCH again  took {} seconds'.format(time() - intermediate_time))
 intermediate_time = time()
 torch_tangent_cylindrical, torch_normal_cylindrical, torch_binormal_cylindrical, \
     torch_curvature, torch_torsion, torch_G0, torch_axis_length, torch_varphi, \
-        torch_d_d_varphi, res, sigma, iota, helicity, elongation, jac, inv_L_grad_B, torch_phi, torch_d_d_phi = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi,
-                                                                                      sigma0=sigma0, I2=I2, spsi=spsi, sG=sG, B0=B0, nfp=nfp)
+        torch_d_d_varphi, res, sigma, iota, helicity, elongation, jac, inv_L_grad_B, torch_phi, torch_d_d_phi = nacx_residual(eR=rc, eZ=zs, etabar=etabar, device=device, nphi=nphi, nfp=nfp)
 print('Calculating TORCH again  took {} seconds'.format(time() - intermediate_time))
 ## Test that the TORCH values are the same as the pyQSC values
 import numpy as np
