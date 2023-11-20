@@ -1,7 +1,10 @@
 import jax
+jax.default_device(jax.devices("cpu")[0])
+from jax import jit, lax
 import jax.numpy as jnp
 from qsc import Qsc
 from time import time
+from functools import partial
 import matplotlib.pyplot as plt
 
 nfp = 2
@@ -16,13 +19,19 @@ sigma0=0
 iota_desired = 0.4
 nphi = 151
 
-def nacx_residual(eR, eZ, etabar=1.0, nphi=nphi, sigma=jnp.zeros(nphi)+0.01, iota=iota_desired, sigma0=sigma0, debug=False):
+@partial(jit, static_argnums=(5,6,7))
+def nacx_residual(eR, eZ, etabar=1.0, sigma=jnp.zeros(nphi)+0.01, iota=iota_desired, nphi=nphi, sigma0=sigma0, debug=False):
     assert nphi % 2 == 1, 'nphi must be odd'
     phi_vals = jnp.linspace(0, 2 * jnp.pi / nfp, nphi, endpoint=False)
     d_phi = phi_vals[1] - phi_vals[0]
-    sigma = sigma.at[0].set(sigma0)
-    sigma = sigma.at[nphi-1].set(sigma0)
 
+    @jit
+    def replace_first_element(x, new_value):
+        return jnp.concatenate([jnp.array([new_value]), x[1:]])
+    
+    sigma = replace_first_element(sigma, sigma0)
+
+    @jit
     def pos_vector_component(phi_val):
         rc_cosines = jnp.cos(jnp.arange(eR.size) * phi_val * nfp)
         zs_sines   = jnp.sin(jnp.arange(eZ.size) * phi_val * nfp)
@@ -30,21 +39,41 @@ def nacx_residual(eR, eZ, etabar=1.0, nphi=nphi, sigma=jnp.zeros(nphi)+0.01, iot
         Z = jnp.sum(eZ * zs_sines)
         return jnp.array([R * jnp.cos(phi_val), R * jnp.sin(phi_val), Z])
 
+    @jit
     def d_r_d_phi_func(phi_val):
         return jax.jacfwd(pos_vector_component)(phi_val)
 
+    @jit
     def d2_r_d_phi2_func(phi_val):
         return jax.jacfwd(d_r_d_phi_func)(phi_val)
 
+    @jit
     def d3_r_d_phi3_func(phi_val):
         return jax.jacfwd(d2_r_d_phi2_func)(phi_val)
     
+    @jit
     def d_l_d_phi_func(phi_val):
         d_r_d_phi = d_r_d_phi_func(phi_val)
         return jnp.linalg.norm(d_r_d_phi, axis=0, keepdims=True)
     
+    @jit
     def d2_l_d_phi2_func(phi_val):
         return jax.jacfwd(d_l_d_phi_func)(phi_val)
+    
+    @jit
+    def manual_cross_product(a, b):
+        nphi = a.shape[0]
+        def body_fun(i, result):
+            ax, ay, az = a[i]
+            bx, by, bz = b[i]
+            cp_x = ay * bz - az * by
+            cp_y = az * bx - ax * bz
+            cp_z = ax * by - ay * bx
+            result = result.at[i].set(jnp.array([cp_x, cp_y, cp_z]))
+            return result
+        result = jnp.zeros_like(a)
+        result = lax.fori_loop(0, nphi, body_fun, result)
+        return result
 
     d_r_d_phi = jax.vmap(d_r_d_phi_func)(phi_vals)
     d2_r_d_phi2 = jax.vmap(d2_r_d_phi2_func)(phi_vals)
@@ -56,9 +85,12 @@ def nacx_residual(eR, eZ, etabar=1.0, nphi=nphi, sigma=jnp.zeros(nphi)+0.01, iot
     d_tangent_d_l = (-d_r_d_phi * d2_l_d_phi2 / d_l_d_phi + d2_r_d_phi2) / (d_l_d_phi * d_l_d_phi)
     curvature = jnp.linalg.norm(d_tangent_d_l, axis=1, keepdims=True)
     normal = d_tangent_d_l / curvature
-    binormal = jnp.cross(tangent, normal)
-    torsion_numerator = jnp.sum(d_r_d_phi * jnp.cross(d2_r_d_phi2, d3_r_d_phi3), axis=1)
-    torsion_denominator = jnp.linalg.norm(jnp.cross(d_r_d_phi, d2_r_d_phi2), axis=1)**2
+    # binormal = jnp.cross(tangent, normal)
+    binormal = manual_cross_product(tangent, normal)
+    # torsion_numerator = jnp.sum(d_r_d_phi * jnp.cross(d2_r_d_phi2, d3_r_d_phi3), axis=1)
+    # torsion_denominator = jnp.linalg.norm(jnp.cross(d_r_d_phi, d2_r_d_phi2), axis=1)**2
+    torsion_numerator = jnp.sum(d_r_d_phi * manual_cross_product(d2_r_d_phi2, d3_r_d_phi3), axis=1)
+    torsion_denominator = jnp.linalg.norm(manual_cross_product(d_r_d_phi, d2_r_d_phi2), axis=1)**2
     torsion = torsion_numerator / torsion_denominator
 
     B0_over_abs_G0 = nphi / jnp.sum(d_l_d_phi)
@@ -66,7 +98,11 @@ def nacx_residual(eR, eZ, etabar=1.0, nphi=nphi, sigma=jnp.zeros(nphi)+0.01, iot
     axis_length = 2 * jnp.pi / B0_over_abs_G0
     varphi = jnp.concatenate([jnp.zeros(1), jnp.cumsum(d_l_d_phi[:-1, 0] + d_l_d_phi[1:, 0])]) * (0.5 * d_phi * 2 * jnp.pi / axis_length)
 
-    def spectral_diff_matrix_jax(n, xmin=0, xmax=2*jnp.pi):
+    @jit
+    def spectral_diff_matrix_jax():
+        n= nphi
+        xmin = 0
+        xmax=2 * jnp.pi / nfp
         h = 2 * jnp.pi / n
         kk = jnp.arange(1, n)
         n_half = n // 2
@@ -78,7 +114,7 @@ def nacx_residual(eR, eZ, etabar=1.0, nphi=nphi, sigma=jnp.zeros(nphi)+0.01, iot
         a, b = jnp.ogrid[0:len(col1), len(row1)-1:-1:-1]
         return 2 * jnp.pi / (xmax - xmin) * vals[a + b]
 
-    d_d_phi = spectral_diff_matrix_jax(nphi, xmax=2 * jnp.pi / nfp)
+    d_d_phi = spectral_diff_matrix_jax()
     d_varphi_d_phi = B0_over_abs_G0 * d_l_d_phi
     d_d_varphi = d_d_phi / d_varphi_d_phi
 
@@ -99,14 +135,15 @@ def nacx_residual(eR, eZ, etabar=1.0, nphi=nphi, sigma=jnp.zeros(nphi)+0.01, iot
     counter = jnp.sum(delta_quadrant) + increment - decrement
     helicity = counter * spsi * sG
 
-    def sigma_equation_residual(curvature, torsion, sigma, etabar, d_d_varphi, iota, G0, B0, helicity):
-        etaOcurv2 = etabar**2 / curvature**2
+    @jit
+    def sigma_equation_residual():
+        etaOcurv2 = etabar**2 / curvature[:,0]**2
         eq = jnp.matmul(d_d_varphi, sigma) \
         + (iota + helicity * nfp) * (etaOcurv2**2 + 1 + sigma**2) \
         - 2 * etaOcurv2 * (-spsi * torsion + I2 / B0) * G0 / B0
         return eq
 
-    res = sigma_equation_residual(curvature[:,0], torsion, sigma, etabar, d_d_varphi, iota, G0, B0, helicity)
+    res = sigma_equation_residual()
 
     X1c = etabar / curvature
     Y1s = sG * spsi * curvature / etabar
@@ -120,6 +157,7 @@ def nacx_residual(eR, eZ, etabar=1.0, nphi=nphi, sigma=jnp.zeros(nphi)+0.01, iot
     else:
         return res, elongation
 
+@jit
 def objective_function(params):
     sigma = jnp.array(params[0:nphi])
     rc = jnp.concatenate([jnp.array([1]),params[nphi:nphi+3]])
@@ -127,18 +165,31 @@ def objective_function(params):
     etabar = params[-2]
     iota = params[-1]
     residuals, elongation = nacx_residual(eR=rc, eZ=zs, etabar=etabar, sigma=sigma, iota=iota)
-    return 1e6*jnp.sum(residuals**2)/nphi + 1e-3*jnp.sum(elongation**2)/nphi + 1e4*(iota-iota_desired)**2
+    return jnp.sum(residuals**2)/nphi + jnp.sum(elongation**2)/nphi + (iota-iota_desired)**2
+
+@jit
+def grad_objective_function(params):
+    grad_func = jax.grad(objective_function)(params)
+    return grad_func
 
 print('Do optimization')
 zs=zs[1:]
 rc=rc[1:]
 sigma = jnp.zeros(nphi)
 initial_params = jnp.concatenate([sigma,rc,zs,jnp.array([etabar,iota_desired])])
-print('Initial objective function: {}'.format(objective_function(initial_params)))
+# print('Initial sum squares objective function:      {}'.format(jnp.sum(objective_function(initial_params))**2))
+# print('Initial sum squares grad objective function: {}'.format(jnp.sum(grad_objective_function(initial_params))**2))
 
+start_time = time();objective_function(initial_params);     print('Calculating JAX      values took {} seconds'.format(time() - start_time))
+start_time = time();grad_objective_function(initial_params);print('Calculating JAX grad values took {} seconds'.format(time() - start_time))
+start_time = time();objective_function(initial_params);     print('Calculating JAX      again  took {} seconds'.format(time() - start_time))
+start_time = time();grad_objective_function(initial_params);print('Calculating JAX grad again  took {} seconds'.format(time() - start_time))
+start_time = time();objective_function(initial_params);     print('Calculating JAX      again  took {} seconds'.format(time() - start_time))
+start_time = time();grad_objective_function(initial_params);print('Calculating JAX grad again  took {} seconds'.format(time() - start_time))
+exit()
 from scipy.optimize import minimize, least_squares
 import numpy as np
-result = minimize(objective_function, initial_params, method='BFGS', jac=jax.grad(objective_function), options={'disp': True})
+result = minimize(objective_function, initial_params, method='BFGS', jac=grad_objective_function, options={'disp': True})
 optimized_params = result.x
 
 # from jax.scipy.optimize import minimize
