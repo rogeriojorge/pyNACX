@@ -1,3 +1,5 @@
+import jax
+jax.config.update('jax_platform_name', 'cpu')
 from time import time
 from qsc import Qsc
 from main_jax import nacx_residual

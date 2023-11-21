@@ -160,4 +160,7 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
     L_grad_B = B0 * jnp.sqrt(2 / grad_B_colon_grad_B)
     inv_L_grad_B = 1.0 / L_grad_B
 
-    return (tangent_cylindrical, normal_cylindrical, binormal_cylindrical, curvature, torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota, helicity, elongation, jac, inv_L_grad_B) if debug else (iota, elongation, inv_L_grad_B)
+    if debug:
+        return tangent_cylindrical, normal_cylindrical, binormal_cylindrical, curvature, torsion, G0, axis_length, varphi, d_d_varphi, res, sigma, iota, helicity, elongation, jac, inv_L_grad_B
+    else:
+        return iota, elongation, inv_L_grad_B
