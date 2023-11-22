@@ -9,14 +9,14 @@ from flax import linen as nn
 from flax import serialization
 from main_jax import nacx_residual
 
-learning_rate = 5e-4
-n_training_steps = int(1e4)
-nsamples = 21
-number_of_retrainings = 6
-eReZmax = 0.175
+learning_rate = 2e-4
+n_training_steps = int(3e4)
+nsamples = 13
+number_of_retrainings = 8
+eReZmax = 0.17
 eReZmin = 1e-2
-etabarMin = 0.3
-etabarMax = 2.0
+etabarMin = 0.05
+etabarMax = 3.0
 nfp = 2
 nphi = 51
 loss_tolerance = 1e-5
@@ -37,9 +37,7 @@ rng1, rng2 = jax.random.split(rng)
 ### Define the model
 @jit
 def forward_solver(parameters):
-    eR  = parameters[0]
-    eZ  = parameters[1]
-    eta = parameters[2]
+    eR, eZ, eta = parameters
     iota, e, iL = nacx_residual(jnp.array([1, -eR]), jnp.array([0, eZ]), eta, nfp=nfp, nphi=nphi)
     return jnp.array([iota, jnp.max(e), jnp.max(iL)])
 
@@ -62,52 +60,55 @@ class DeepNN(nn.Module):
         return nn.Dense(number_of_y_parameters)(x)
 model = DeepNN()
 
-def make_mae_func(x_batched, y_batched):
-    def mae(params):
-        def squared_error(x, y):
-            pred = model.apply(params, x)
-            return jnp.abs(y - pred)
-        return jnp.mean(jax.vmap(squared_error)(x_batched, y_batched))
-    return jax.jit(mae) 
-
 tx = optax.chain(
     optax.scale_by_adam(b1=b1, b2=b2, eps=eps),
     optax.scale(-learning_rate)
 )
 
-## Function to train the model
-def train_model_with_data(x_samples, y_samples, params, loss_array=[]):
-    loss = make_mae_func(x_samples, y_samples)
-    loss_grad_fn = jax.value_and_grad(loss)
-    opt_state = tx.init(params)
-    loss_old=jnp.inf
-    for step in range(n_training_steps):
-        loss_val, grads = loss_grad_fn(params)
-        updates, opt_state = tx.update(grads, opt_state)
-        params = optax.apply_updates(params, updates)
-        loss_array.append(loss_val)
-        if step % 300 == 0 or step == n_training_steps - 1:
-            print(f'  Loss[{step}] = {loss_val}')
-        if jnp.abs((loss_val - loss_old)/loss_old) < loss_tolerance and step>min_steps_to_take:
-            print(f'  Loss[{step}] = {loss_val}')
-            break
-        loss_old = loss_val
-    return params, opt_state, loss_array
+# Function to compute mean absolute error
+@jit
+def mae(params, x_batched, y_batched):
+    def squared_error(x, y):
+        pred = model.apply(params, x)
+        return jnp.abs(y - pred)
+    return jnp.mean(jax.vmap(squared_error)(x_batched, y_batched))
 
+# Compiled training step
+@jit
+def training_step(params, x_samples, y_samples, opt_state):
+    loss_val, grads = jax.value_and_grad(mae, argnums=0)(params, x_samples, y_samples)
+    updates, opt_state = tx.update(grads, opt_state, params)
+    params = optax.apply_updates(params, updates)
+    return params, opt_state, loss_val
+
+# Main training loop
 if __name__ == "__main__":
-    ## Train the model
+    print('Neural network for inverse qsc solver')
     params = model.init(rng2, jnp.ones((number_of_x_parameters,)))
-    loss_array=[]
+    opt_state = optax.chain(optax.scale_by_adam(b1=b1, b2=b2, eps=eps), optax.scale(-learning_rate)).init(params)
+    loss_array = []
+
     for i in range(number_of_retrainings):
         print(f'Training {i+1} of {number_of_retrainings} with {n_training_steps} max steps')
-        # x samples and y samples reversed to have an inverse neural network
-        y_samples = jnp.array(list(itertools.product(jax.random.uniform(rng1+1+i, minval=eReZmin, maxval=eReZmax, shape=(nsamples,)),
-                                                     jax.random.uniform(rng1+2+i, minval=eReZmin, maxval=eReZmax, shape=(nsamples,)),
-                                                     jax.random.uniform(rng1+3+i, minval=etabarMin, maxval=etabarMax, shape=(nsamples,)))))
+        y_samples = jnp.array(list(itertools.product(
+            jax.random.uniform(rng1+1+i, minval=eReZmin, maxval=eReZmax, shape=(nsamples,)),
+            jax.random.uniform(rng1+2+i, minval=eReZmin, maxval=eReZmax, shape=(nsamples,)),
+            jax.random.uniform(rng1+3+i, minval=etabarMin, maxval=etabarMax, shape=(nsamples,))
+        )))
         x_samples = vmap_forward_solver(y_samples)
-        params, opt_state, loss_array = train_model_with_data(x_samples, y_samples, params, loss_array)
 
-    ## Save results
+        loss_old = jnp.inf
+        for step in range(n_training_steps):
+            params, opt_state, loss_val = training_step(params, x_samples, y_samples, opt_state)
+            loss_array.append(loss_val)
+            if step % 300 == 0 or step == n_training_steps - 1:
+                print(f'  Loss[{step}] = {loss_val}')
+            if jnp.abs((loss_val - loss_old)/loss_old) < loss_tolerance and step > min_steps_to_take:
+                print(f'  Loss[{step}] = {loss_val}')
+                break
+            loss_old = loss_val
+
+    # Save results
     bytes_output = serialization.to_bytes(params)
     with open(model_save_path, 'wb') as f:
         f.write(bytes_output)

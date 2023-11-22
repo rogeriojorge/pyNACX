@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 import jax
 import json
 from jax import jit
@@ -8,11 +9,13 @@ import matplotlib.pyplot as plt
 import scipy
 from train_inn import DeepNN, number_of_x_parameters, forward_solver, eReZmin, eReZmax, etabarMin, etabarMax, model_save_path, loss_save_path
 
-nfp = 2
 rc_base = 0.07
 zs_base = 0.07
 eta_base = 0.9
 n_samples_test = 41
+
+nfp = int(re.search('nfp(\d+)', model_save_path).group(1))
+print(f'nfp = {nfp}')
 
 model = DeepNN()
 dummy_input = jnp.ones((1, number_of_x_parameters))
