@@ -105,6 +105,8 @@ def nacx_residual(eR=jnp.array([1, 0.1]), eZ=jnp.array([0, 0.1]), etabar=1.0,
         jac = d_d_varphi + (iota + helicity * nfp) * 2 * jnp.diag(sigma)
         return jac.at[:, 0].set(etaOcurv2**2 + 1 + sigma**2)
 
+    ## Use Optimistix Newton's method to solve the sigma equation
+    # solver = optx.Newton(rtol=1e-5, atol=1e-5)
     @partial(jit, static_argnums=(1,))
     def newton(x0, niter=5):
         def body_fun(i, x):
